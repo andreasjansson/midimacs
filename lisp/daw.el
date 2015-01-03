@@ -14,6 +14,7 @@
   (define-key daw-seq-mode-map (kbd "[") 'daw-set-repeat-start)
   (define-key daw-seq-mode-map (kbd "]") 'daw-set-repeat-end)
   (define-key daw-seq-mode-map (kbd "C-c a") 'daw-add-track)
+  (define-key daw-seq-mode-map (kbd "C-d") 'daw-remove-code)
   (define-key daw-seq-mode-map (kbd "RET") 'daw-seq-enter)
   (define-key daw-seq-mode-map (kbd "C-x SPC") 'daw-toggle-play)
   (define-key daw-seq-mode-map (kbd "SPC") 'daw-toggle-play)
@@ -255,6 +256,15 @@
   (unless beat
     (user-error "No beat here")))
 
+(defun daw-remove-code ()
+  (interactive)
+  (let ((track (daw-current-track))
+        (beat (daw-current-beat)))
+    (daw-check-track track)
+    (daw-check-beat beat)
+    (daw-track-remove-event-at-beat track beat))
+  (daw-draw))
+
 (defun daw-add-code (c)
   (interactive "cCode name: ")
   (daw-add-code-init c t))
@@ -267,8 +277,9 @@
     (daw-check-beat beat)
 
     (daw-get-or-make-code code-name)
-    (aset (daw-track-events track) beat (make-daw-event :code-name code-name
-                                                        :do-init do-init)))
+    (daw-track-set-event-at-beat track beat
+                                 (make-daw-event :code-name code-name
+                                                 :do-init do-init)))
 
   (daw-draw)
   (goto-char (1+ (point))))
@@ -509,6 +520,12 @@
                               daw-song-time
                               (daw-track-rel-time track)
                               (daw-track-state track)))))))
+
+(defun daw-track-set-event-at-beat (track beat event)
+  (aset (daw-track-events track) beat event))
+
+(defun daw-track-remove-event-at-beat (track time)
+  (aset (daw-track-events track) beat nil))
 
 (defun daw-track-events-at-time (time)
   (let ((event))
