@@ -1,5 +1,8 @@
-;; TODO: make all globals buffer-local to the seq buffer, include
-;; some name in the buffer names
+;; TODO:
+;; make all globals buffer-local to the seq buffer, include
+;; some name in the buffer names.
+;; backspace
+
 
 ;; BUGS:
 ;; cannot save when code doesn't parse
@@ -52,6 +55,16 @@
   :group 'daw)
 
 (defconst daw-letters "abcdefghijklmnopqrstuvwxyz")
+(defconst daw-pitch-numbers '(("c" . 0)
+                              ("d" . 2)
+                              ("e" . 4)
+                              ("f" . 5)
+                              ("g" . 7)
+                              ("a" . 9)
+                              ("b" . 11)))
+(defconst daw-accidental-numbers '((nil . 0)
+                                   ("b" . -1)
+                                   ("s" . +1)))
 
 (defvar daw-tracks '())
 (defvar daw-codes nil)
@@ -80,12 +93,12 @@
   name
   events
   state
-  (last-init-time (daw-make-time)))
+  (last-init-time (make-daw-time)))
 
 (defstruct daw-midi-message
   status
-  data1
-  data2)
+  (data1 nil)
+  (data2 nil))
 
 (defstruct daw-time
   (beat 0)
@@ -371,7 +384,7 @@
 
 (defun daw-event-code (track-event)
   (let ((code-name (daw-event-code-name track-event)))
-    (daw-get-code code-name)))    
+    (daw-get-code code-name)))
 
 (defun daw-event-string (track-event)
   (let* ((code (daw-event-code track-event))
@@ -400,9 +413,7 @@
 
 (defun daw-code-update ()
   (interactive)
-  (eval-buffer)
-
-  )
+  (eval-buffer))
 
 (defun daw-code (name init run)
   (let ((code (daw-get-code name)))
@@ -414,18 +425,25 @@
 (cl-defun daw-note (channel pitch duration &optional (velocity 100) (off-velocity 0))
                                         ; TODO: validation; allow symbols for pitch and duration
   (daw-midi-schedule-note-off (daw-time+ daw-abs-time duration)
-                              (daw-midi-note-off channel pitch off-velocity))
-  (daw-midi-execute (daw-midi-note-on channel pitch velocity)))
+                              (daw-midi-message-note-off channel pitch off-velocity))
+  (daw-midi-execute (daw-midi-message-note-on channel pitch velocity)))
 
-(defun daw-midi-note-on (channel pitch velocity)
-  (make-daw-midi-message :status #x90
+(defun daw-midi-message-note-on (channel pitch velocity)
+  (make-daw-midi-message :status (+ #x90 channel)
                          :data1 pitch
                          :data2 velocity))
 
-(defun daw-midi-note-off (channel pitch velocity)
-  (make-daw-midi-message :status #x80
+(defun daw-midi-message-note-off (channel pitch velocity)
+  (make-daw-midi-message :status (+ #x80 channel)
                          :data1 pitch
                          :data2 velocity))
+
+(defun daw-midi-message-program-change (channel program)
+  (make-daw-midi-message :status (+ #xC0 channel)
+                         :data1 program))
+
+(defun daw-program-change (channel program)
+  (daw-midi-execute (daw-midi-message-program-change channel program)))
 
 (defun daw-midi-schedule-note-off (abs-time message)
   (heap-add daw-scheduled-note-offs (list abs-time message)))
@@ -434,10 +452,13 @@
   (process-send-string daw-amidicat-proc (daw-midi-serialize message)))
 
 (defun daw-midi-serialize (message)
-  (format "%X %X %X\n"
-          (daw-midi-message-status message)
-          (daw-midi-message-data1 message)
-          (daw-midi-message-data2 message)))
+  (let* ((status (daw-midi-message-status message))
+         (data1 (daw-midi-message-data1 message))
+         (data2 (daw-midi-message-data2 message))
+         (status-string (format "%02X" status))
+         (data1-string (if data1 (format " %02X" data1) ""))
+         (data2-string (if (and data1 data2) (format " %02X" data2) "")))
+    (concat status-string data1-string data2-string "\n")))
 
 (defun daw-midi-flush-note-offs ()
   (let ((el))
@@ -536,7 +557,7 @@
 (defun daw-wait-time ()
   (let* ((target-wait-time (/ 60.0 daw-bpm daw-ticks-per-beat))
          (now (float-time))
-         (drift (if daw-last-tick-time
+         (drift (if daw-last-tick-time ;; doesn't work
                     (- now daw-last-tick-time target-wait-time)
                   0)))
     (setq daw-last-tick-time now)
@@ -590,7 +611,7 @@
   (let ((s (with-temp-buffer
              (insert-file-contents filename)
              (buffer-string))))
-    
+
     (daw-unserialize-project s))
   (setq daw-filename filename)
   (daw-draw))
@@ -651,6 +672,63 @@
 (defun daw-make-scheduled-note-offs-heap ()
   (make-heap (lambda (a b) (daw-time< (nth 0 a) (nth 0 b)))))
 
+(defun daw-time-regex ()
+  (let ((beat-regex "\\([0-9]+\\)")
+        (frac-regex "\\([0-9]+\\)/\\([0-9]+\\)"))
+    (concat "^\\(?:"
+            beat-regex
+            "\\|"
+            beat-regex "\\+" frac-regex
+            "\\|"
+            frac-regex
+            "\\)$")))
+
+(defun daw-parse-time (s)
+  (if (string-match (daw-time-regex) s)
+      (let* ((beat-s (or (match-string 1 s) (match-string 2 s)))
+             (frac-num-s (or (match-string 3 s) (match-string 5 s)))
+             (frac-denom-s (or (match-string 4 s) (match-string 6 s)))
+             (beat (if beat-s (string-to-number beat-s) 0))
+             (frac-num (when frac-num-s (string-to-number frac-num-s)))
+             (frac-denom (when frac-denom-s (string-to-number frac-denom-s)))
+             (tick (if frac-num (daw-frac-to-tick frac-num frac-denom) 0)))
+        (make-daw-time :beat beat :tick tick))
+    (error (format "Couldn't parse time \"%s\"" s))))
+
+(defun daw-frac-to-tick (num denom)
+  (let ((tick (/ (float (* num daw-ticks-per-beat)) denom)))
+    (unless (= (truncate tick) tick)
+      (error (format "Invalid tick fraction %d/%d at %d ticks per beat (tick %f)"
+                     num denom daw-ticks-per-beat tick)))
+    (truncate tick)))
+
+(defun daw-parse-pitch (s)
+  (if (string-match "^\\([a-gA-G]\\)\\([sb]\\)?\\(-?[0-9]\\)$" s)
+      (let* ((base (downcase (match-string 1 s)))
+             (accidental (match-string 2 s))
+             (octave (string-to-number (match-string 3 s)))
+             (pitch (+ (* 12 (+ octave 1))
+                       (+ (cdr (assoc base daw-pitch-numbers))
+                          (cdr (assoc accidental daw-accidental-numbers))))))
+        (unless (and (>= pitch 0)
+                     (<= pitch 127))
+          (error (format "Pitch \"%s\" (%d) is out of range 0 <= x <= 127" s pitch)))
+        pitch)
+    (error (format "Couldn't parse pitch \"%s\"" s))))
+
+(defun daw-sym-or-num-to-string (x)
+  (cond ((symbolp x) (symbol-name x))
+        ((numberp x) (number-to-string x))))
+
+(defmacro daw-score (channel notes)
+  (cons
+   'progn
+   (loop for (onset-sym pitch-sym dur-sym) in notes
+         collect (let ((onset (daw-parse-time (daw-sym-or-num-to-string onset-sym)))
+                       (pitch (daw-parse-pitch (symbol-name pitch-sym)))
+                       (dur (daw-parse-time (daw-sym-or-num-to-string dur-sym))))
+                   `(when (daw-time= rel-time ,onset)
+                      (daw-note ,channel ,pitch ,dur))))))
+
 (provide 'daw)
 ;;; daw.el ends here
-
