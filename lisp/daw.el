@@ -18,7 +18,10 @@
   (define-key daw-seq-mode-map (kbd "]") 'daw-set-repeat-end)
   (define-key daw-seq-mode-map (kbd "C-c a") 'daw-add-track)
   (define-key daw-seq-mode-map (kbd "C-d") 'daw-remove-code)
+  (define-key daw-seq-mode-map (kbd "DEL") 'daw-remove-code-backward)
   (define-key daw-seq-mode-map (kbd "RET") 'daw-seq-enter)
+  (define-key daw-seq-mode-map (kbd "C-w") 'daw-seq-kill)
+  (define-key daw-seq-mode-map (kbd "C-y") 'daw-seq-yank)
   (define-key daw-seq-mode-map (kbd "C-x SPC") 'daw-toggle-play)
   (define-key daw-seq-mode-map (kbd "SPC") 'daw-toggle-play)
   (define-key daw-seq-mode-map (kbd "M-SPC") 'daw-play-here)
@@ -26,6 +29,7 @@
   (define-key daw-seq-mode-map (kbd "C-x C-s") 'daw-save)
   (define-key daw-seq-mode-map (kbd "C-x C-w") 'daw-save-as)
   (define-key daw-seq-mode-map (kbd "C-x C-f") 'daw-open)
+  (setq transient-mark-mode nil)
   (setq truncate-lines t))
 
 (define-derived-mode daw-code-mode emacs-lisp-mode "daw-code-mode"
@@ -78,6 +82,9 @@
 (defvar daw-filename nil)
 (defvar daw-amidicat-proc nil)
 (defvar daw-scheduled-note-offs nil)
+(defvar daw-selection nil)
+
+;(defface daw-seq-region-face '((t :inherit 'region)) "Face for DAW sequencer regions" :group 'daw-faces)
 
 (defstruct daw-event
   code-name
@@ -127,9 +134,9 @@
   (setq daw-last-tick-time nil)
   (setq daw-filename nil)
   (setq daw-scheduled-note-offs (daw-make-scheduled-note-offs-heap))
-
   (setq daw-repeat-start (make-daw-time))
   (setq daw-repeat-end (make-daw-time :beat daw-length))
+  (setq daw-selection nil)
 
   (daw-code-close-all-buffers)
   (daw-amidicat-proc-init)
@@ -160,16 +167,6 @@
       (daw-draw-tracks)
       (goto-char p))))
 
-(defun daw-draw-tracks ()
-  (dolist (track daw-tracks)
-    (daw-draw-track track)))
-
-(defun daw-draw-track (track)
-  (insert (daw-track-name track))
-  (insert " ")
-  (daw-draw-track-events track)
-  (insert "\n"))
-
 (defun daw-draw-top-bar ()
   (let* ((p 0)
          (space (string-to-char " "))
@@ -196,26 +193,71 @@
   (cond ((eq daw-state 'playing) "▶")
         ((eq daw-state 'stopped) "◾")))
 
+(defun daw-draw-tracks ()
+  (dolist (track daw-tracks)
+    (daw-draw-track track)))
+
+(defun daw-draw-track (track)
+  (insert (daw-track-name track))
+  (insert " ")
+  (daw-draw-track-events track)
+  (insert "\n"))
+
 (defun daw-draw-track-events (track)
   (let ((track-events (daw-track-events track)))
     (dotimes (i daw-length)
-      (let ((track-event (elt track-events i)))
+      (let* ((track-event (elt track-events i)))
         (daw-draw-track-event track-event)))))
 
-(defun daw-draw-track-event (track-event)
-  (insert
-   (if (eq track-event nil)
-       "-"
-     (daw-event-string track-event))))
+(defun daw-daw-track-event (track-event)
+  (insert (if (eq track-event nil)
+              "-"
+            (daw-event-string track-event))))
 
 (defun daw-seq-enter ()
   (interactive)
   (let* ((track (daw-current-track))
          (beat (daw-current-beat))
          (time (make-daw-time :beat beat))
-         (code (daw-track-code-at track time)))
+         (code (daw-track-code-at-beat track (daw-time-beat time))))
     (when (and track beat code)
       (daw-code-open-window code))))
+
+(defun daw-seq-kill ()
+  (interactive)
+  (destructuring-bind (col-start line-start col-end line-end)
+      (daw-selected-rect)
+    (unless (and (daw-beat-at-column col-start)
+                 (daw-track-at-line line-start)
+                 (daw-beat-at-column col-end)
+                 (daw-track-at-line line-end))
+      (user-error "Cannot kill region without track or beat"))
+
+    (setq daw-selection
+          (loop for line from line-start to line-end
+                collect (let ((track (daw-track-at-line line)))
+                          (loop for col from col-start to col-end
+                                collect (let* ((beat (daw-beat-at-column col))
+                                               (event (daw-track-event-at-beat track beat)))
+                                          (daw-track-remove-event-at-beat track beat)
+                                          event))))))
+  (goto-char (mark))
+  (daw-draw))
+
+(defun daw-column (pos)
+  (save-excursion
+    (goto-char pos)
+    (current-column)))
+
+(defun daw-selected-rect ()
+  (let ((col-mark (daw-column (mark)))
+        (line-mark (count-lines 1 (mark)))
+        (col-point (daw-column (point)))
+        (line-point (count-lines 1 (point))))
+    (list (min col-mark col-point)
+          (min line-mark line-point)
+          (max col-mark col-point)
+          (max line-mark line-point))))
 
 (defun daw-set-repeat-start ()
   (interactive)
@@ -224,6 +266,24 @@
     (let ((new-repeat-start (make-daw-time :beat (daw-current-beat))))
       (daw-check-acceptable-repeat new-repeat-start daw-repeat-end)
       (setq daw-repeat-start new-repeat-start)))
+  (daw-draw))
+
+(defun daw-seq-yank ()
+  (interactive)
+  (when daw-selection
+    (let* ((col-start (daw-column (point)))
+           (line-start (count-lines 1 (point)))
+           (cols (length (car daw-selection)))
+           (lines (length daw-selection)))
+
+      (loop for line below lines
+            do (let ((track (daw-track-at-line (+ line-start line))))
+                 (when track
+                   (loop for col below cols
+                         do (let ((beat (daw-beat-at-column (+ col-start col))))
+                              (when beat
+                                (daw-track-set-event-at-beat
+                                 track beat (nth col (nth line daw-selection)))))))))))
   (daw-draw))
 
 (defun daw-set-repeat-end ()
@@ -250,23 +310,35 @@
 (defun daw-next-track-name ()
   (string (elt daw-letters (length daw-tracks))))
 
-(defun daw-track-event-at (track time)
-  (elt (daw-track-events track) (daw-time-beat time)))
+(defun daw-track-event-at-beat (track beat)
+  (elt (daw-track-events track) beat))
 
-(defun daw-track-code-at (track time)
-  (let ((event (daw-track-event-at track time)))
+(defun daw-track-code-at-beat (track beat)
+  (let ((event (daw-track-event-at-beat track beat)))
     (when event
       (daw-event-code event))))
 
 (defun daw-track-rel-time (track)
   (daw-time- daw-abs-time (daw-track-last-init-time track)))
 
+(defun daw-track-set-event-at-beat (track beat event)
+  (aset (daw-track-events track) beat event))
+
+(defun daw-track-remove-event-at-beat (track time)
+  (aset (daw-track-events track) beat nil))
+
+(defun daw-track-events-at-beat (beat)
+  (let ((event))
+    (loop for track in daw-tracks
+          if (setq event (daw-track-event-at-beat track beat))
+          collect (list track event))))
+
 (defun daw-check-track (track)
   (unless track
     (user-error "No track here")))
 
 (defun daw-check-beat (beat)
-  (unless beat
+  (unless (and beat (>= beat 0))
     (user-error "No beat here")))
 
 (defun daw-remove-code ()
@@ -276,6 +348,16 @@
     (daw-check-track track)
     (daw-check-beat beat)
     (daw-track-remove-event-at-beat track beat))
+  (daw-draw))
+
+(defun daw-remove-code-backward ()
+  (interactive)
+  (let ((track (daw-current-track))
+        (beat (1- (daw-current-beat))))
+    (daw-check-track track)
+    (daw-check-beat beat)
+    (daw-track-remove-event-at-beat track beat))
+  (backward-char)
   (daw-draw))
 
 (defun daw-add-code (c)
@@ -289,13 +371,16 @@
     (daw-check-track track)
     (daw-check-beat beat)
 
-    (daw-get-or-make-code code-name)
-    (daw-track-set-event-at-beat track beat
-                                 (make-daw-event :code-name code-name
-                                                 :do-init do-init)))
+    (daw-track-add-code-init-at-beat (track beat c do-init)))
 
   (daw-draw)
   (goto-char (1+ (point))))
+
+(defun daw-track-add-code-init-at-beat (track beat c do-init)
+  (daw-get-or-make-code code-name)
+  (daw-track-set-event-at-beat track beat
+                               (make-daw-event :code-name code-name
+                                               :do-init do-init)))
 
 (defun daw-get-or-make-code (code-name)
   (or (daw-get-code code-name)
@@ -330,18 +415,21 @@
   (interactive)
   (with-current-buffer (daw-buffer-seq)
     (save-excursion
-      (let ((line (daw-current-line)))
-        (when (>= line 2)
-          (nth (- line 2) daw-tracks))))))
+      (daw-track-at-line (daw-current-line)))))
+
+(defun daw-track-at-line (line)
+  (when (>= line 2)
+    (nth (- line 2) daw-tracks)))
+
+(defun daw-beat-at-column (col)
+  (when (>= col 2)
+    (- col 2)))
 
 (defun daw-current-beat ()
   (interactive)
   (with-current-buffer (daw-buffer-seq)
     (save-excursion
-      (let ((col (current-column)))
-        (if (>= col 2)
-            (- col 2)
-          nil)))))
+      (daw-beat-at-column (current-column)))))
 
 (defun daw-valid-letter (c)
   (let ((vc (downcase (if (characterp c)
@@ -541,18 +629,6 @@
                               daw-song-time
                               (daw-track-rel-time track)
                               (daw-track-state track)))))))
-
-(defun daw-track-set-event-at-beat (track beat event)
-  (aset (daw-track-events track) beat event))
-
-(defun daw-track-remove-event-at-beat (track time)
-  (aset (daw-track-events track) beat nil))
-
-(defun daw-track-events-at-time (time)
-  (let ((event))
-    (loop for track in daw-tracks
-          if (setq event (daw-track-event-at track time))
-          collect (list track event))))
 
 (defun daw-wait-time ()
   (let* ((target-wait-time (/ 60.0 daw-bpm daw-ticks-per-beat))
