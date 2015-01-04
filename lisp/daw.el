@@ -855,16 +855,23 @@
                             (move-to-column col)
                             (point)))))))
 
+(defun daw-read-char-no-quit (q)
+  (let* ((inhibit-quit t)
+         (res (read-char q)))
+    (if (= res 7)
+        nil
+      res)))
+
 (defun daw-x-jump ()
   (interactive)
   (let* ((overlay-map (daw-x-jump-make-overlay-map))
-         (jump-char (read-char "Jump to character: "))
-         (c-p-overlay (assoc jump-char overlay-map))
-         (jump-point (car (cdr c-p-overlay))))
-
-    (if jump-point
-        (goto-char jump-point)
-      (message "Invalid jump point"))
+         (jump-char (daw-read-char-no-quit "Jump to character: ")))
+    (when jump-char
+      (let* ((c-p-overlay (assoc jump-char overlay-map))
+             (jump-point (car (cdr c-p-overlay))))
+        (if jump-point
+            (goto-char jump-point)
+          (message "Invalid jump point"))))
 
     (loop for (c . (p . overlay)) in overlay-map
           do (delete-overlay overlay))))
