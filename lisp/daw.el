@@ -78,7 +78,7 @@
 (defvar daw-abs-time nil)
 (defvar daw-song-time nil)
 (defvar daw-state 'stopped)
-(defvar daw-last-tick-time nil)
+(defvar daw-start-time-seconds nil)
 (defvar daw-filename nil)
 (defvar daw-amidicat-proc nil)
 (defvar daw-scheduled-note-offs nil)
@@ -131,7 +131,7 @@
   (setq daw-song-time (make-daw-time))
   (setq daw-abs-time (make-daw-time))
   (setq daw-state 'stopped)
-  (setq daw-last-tick-time nil)
+  (setq daw-start-time-seconds nil)
   (setq daw-filename nil)
   (setq daw-scheduled-note-offs (daw-make-scheduled-note-offs-heap))
   (setq daw-repeat-start (make-daw-time))
@@ -147,9 +147,10 @@
   (let ((buffer-name (daw-amidicat-buffer-name))
         (process-name "daw-amidicat"))
     (when (get-buffer buffer-name)
-      (daw-midi-flush-note-offs)
       (when (get-process process-name)
-        (delete-process process-name))
+          (progn
+            (daw-midi-flush-note-offs)
+            (delete-process process-name)))
       (kill-buffer buffer-name))
 
     (setq daw-amidicat-proc
@@ -593,7 +594,8 @@
 
 (defun daw-play ()
   (setq daw-state 'playing)
-  (setq daw-last-tick-time nil)
+  (setq daw-start-time-seconds (float-time))
+  (setq daw-abs-time (make-daw-time))
   (daw-tick))
 
 (defun daw-tick ()
@@ -643,13 +645,12 @@
                               (daw-track-state track)))))))
 
 (defun daw-wait-time ()
-  (let* ((target-wait-time (/ 60.0 daw-bpm daw-ticks-per-beat))
+  (let* ((tick-sec (/ 60.0 daw-bpm daw-ticks-per-beat))
+         (expected-time-sec (+ daw-start-time-seconds
+                               (* tick-sec (daw-time-to-ticks daw-abs-time))))
          (now (float-time))
-         (drift (if daw-last-tick-time ;; doesn't work
-                    (- now daw-last-tick-time target-wait-time)
-                  0)))
-    (setq daw-last-tick-time now)
-    (- target-wait-time drift)))
+         (drift (- now expected-time-sec)))
+    (max 0 (- tick-sec drift))))
 
 (defun daw-stop ()
   (daw-midi-flush-note-offs)
@@ -725,6 +726,10 @@
     (setq daw-repeat-start repeat-start)
     (setq daw-repeat-end repeat-end)
     (setq daw-song-time daw-repeat-start)))
+
+(defun daw-time-to-ticks (time)
+  (+ (daw-time-tick time)
+     (* (daw-time-beat time) daw-ticks-per-beat)))
 
 (defun daw-time< (a b)
   (let ((beat-a (daw-time-beat a))
