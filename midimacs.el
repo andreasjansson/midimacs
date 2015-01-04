@@ -1,12 +1,12 @@
 ;; TODO:
 ;; make all globals buffer-local to the seq buffer, include
 ;; some name in the buffer names.
-;; backspace
 
 
 ;; BUGS:
 ;; cannot save when code doesn't parse
 ;; when midi server goes away we die
+;; cannot select or x-jump when playing
 
 (eval-when-compile
   (require 'cl)
@@ -55,10 +55,7 @@
   "beats per minute"
   :group 'midimacs)
 
-(defcustom midimacs-ticks-per-beat 24
-  "number of ticks per beat"
-  :group 'midimacs)
-
+(defconst midimacs-ticks-per-beat 24)
 (defconst midimacs-letters "abcdefghijklmnopqrstuvwxyz")
 (defconst midimacs-pitch-numbers '(("c" . 0)
                               ("d" . 2)
@@ -858,7 +855,7 @@
 (defun midimacs-read-char-no-quit (q)
   (let* ((inhibit-quit t)
          (res (read-char q)))
-    (if (= res 7)
+    (if (= res 7) ;; C-g
         nil
       res)))
 
@@ -899,6 +896,14 @@
     (overlay-put ol 'face 'ace-jump-face-foreground)
     (overlay-put ol 'display c)
     ol))
+
+(defun midimacs-set-tempo (bpm)
+  (interactive "nBeats per minute: ")
+  (let ((state midimacs-state))
+    (midimacs-stop)
+    (setq midimacs-bpm bpm)
+    (when (eq state 'playing)
+      (midimacs-play))))
 
 (provide 'midimacs)
 ;;; midimacs.el ends here
