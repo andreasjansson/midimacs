@@ -600,11 +600,11 @@
   (daw-tick))
 
 (defun daw-tick ()
-  (daw-trigger-note-offs)
-  (daw-trigger-events)
-  (daw-incr-position)
-  (daw-draw)
   (when (eq daw-state 'playing)
+    (daw-trigger-note-offs)
+    (daw-trigger-events)
+    (daw-incr-position)
+    (daw-draw)
     (run-at-time (daw-wait-time) nil 'daw-tick)))
 
 (defun daw-incr-position ()
