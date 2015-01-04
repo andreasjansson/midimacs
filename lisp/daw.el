@@ -29,6 +29,7 @@
   (define-key daw-seq-mode-map (kbd "C-x C-s") 'daw-save)
   (define-key daw-seq-mode-map (kbd "C-x C-w") 'daw-save-as)
   (define-key daw-seq-mode-map (kbd "C-x C-f") 'daw-open)
+  (define-key daw-seq-mode-map (kbd "C-c SPC") 'daw-x-jump)
   (setq transient-mark-mode nil)
   (setq truncate-lines t))
 
@@ -822,6 +823,75 @@
                        (dur (daw-parse-time (daw-sym-or-num-to-string dur-sym))))
                    `(when (daw-time= rel-time ,onset)
                       (daw-note ,channel ,pitch ,dur))))))
+
+(defun daw-visible-line-positions ()
+  (save-excursion
+    (let ((p (point))
+          (col) (start) (end))
+      (when (= (1- (line-number-at-pos))
+               (count-lines (point-min) (point-max)))
+        (setq col (current-column))
+        (forward-line -1)
+        (move-to-column col))
+
+      (move-to-column (window-hscroll))
+      (setq start (point))
+      (setq col (current-column))
+      (move-to-column (+ col (window-width)))
+      (setq end (point))
+      (loop for p from start to end
+            collect p))))
+
+(defun daw-visible-col-positions ()
+  (save-excursion
+    (let ((col (current-column))
+          (lines (count-lines (window-start) (window-end))))
+      (goto-char (window-start))
+      (move-to-column col)
+      (cons (point)
+            (loop while (< (line-number-at-pos) lines)
+                  collect (progn
+                            (forward-line)
+                            (move-to-column col)
+                            (point)))))))
+
+(defun daw-x-jump ()
+  (interactive)
+  (let* ((overlay-map (daw-x-jump-make-overlay-map))
+         (jump-char (read-char "Jump to character: "))
+         (c-p-overlay (assoc jump-char overlay-map))
+         (jump-point (car (cdr c-p-overlay))))
+
+    (if jump-point
+        (goto-char jump-point)
+      (message "Invalid jump point"))
+
+    (loop for (c . (p . overlay)) in overlay-map
+          do (delete-overlay overlay))))
+
+(defun daw-x-jump-make-overlay-map ()
+  (let* ((all-line-positions (daw-visible-line-positions))
+         (col-positions (daw-visible-col-positions))
+
+         (chars (nconc (loop for c from ?a to ?z collect c)
+                       (loop for c from ?0 to ?9 collect c)
+                       (loop for c from ?A to ?Z collect c)
+                       (string-to-list "~`!@#$%^&*()_-+={[}]|\\:;\"'<,>.?/")))
+
+         (line-positions (loop for p in all-line-positions
+                               when (= (% p 3) (% (point) 3))
+                               collect p))
+
+         (positions (append col-positions line-positions)))
+
+    (loop for (p c) in (mapcar* 'list positions chars)
+          collect (cons c (cons p (daw-x-jump-make-overlay p (string c)))))))
+
+(defun daw-x-jump-make-overlay (p c)
+  (let ((ol (make-overlay p (1+ p))))
+    (overlay-put ol 'face 'ace-jump-face-foreground)
+    (overlay-put ol 'display c)
+    ol))
 
 (provide 'daw)
 ;;; daw.el ends here
