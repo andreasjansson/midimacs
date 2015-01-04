@@ -371,7 +371,7 @@
     (daw-check-track track)
     (daw-check-beat beat)
 
-    (daw-track-add-code-init-at-beat (track beat c do-init)))
+    (daw-track-add-code-init-at-beat track beat c do-init))
 
   (daw-draw)
   (goto-char (1+ (point))))
@@ -510,8 +510,20 @@
           (daw-code-text code) (buffer-string)))
   (message (concat "updated code " name)))
 
-(cl-defun daw-note (channel pitch duration &optional (velocity 100) (off-velocity 0))
-                                        ; TODO: validation; allow symbols for pitch and duration
+(cl-defun daw-note (channel pitch-raw duration-raw &optional (velocity 100) (off-velocity 0))
+                                        ; TODO: validation
+
+  (setq pitch (cond ((symbolp pitch-raw) (daw-parse-pitch (symbol-name pitch-raw)))
+                    ((stringp pitch-raw) (daw-parse-pitch pitch-raw))
+                    (t pitch-raw)))
+
+  (setq duration (cond ((symbolp duration-raw) (daw-parse-time (symbol-name duration-raw)))
+                       ((stringp duration-raw) (daw-parse-time duration-raw))
+                       ((numberp duration-raw)
+                        (make-daw-time :beat (floor (/ duration-raw daw-ticks-per-beat))
+                                       :tick (mod duration-raw daw-ticks-per-beat)))
+                       (t duration-raw)))
+
   (daw-midi-schedule-note-off (daw-time+ daw-abs-time duration)
                               (daw-midi-message-note-off channel pitch off-velocity))
   (daw-midi-execute (daw-midi-message-note-on channel pitch velocity)))
