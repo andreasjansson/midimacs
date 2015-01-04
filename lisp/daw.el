@@ -845,7 +845,7 @@
 (defun daw-visible-col-positions ()
   (save-excursion
     (let ((col (current-column))
-          (lines (count-lines (window-start) (window-end))))
+          (lines (count-lines (point-min) (window-end))))
       (goto-char (window-start))
       (move-to-column col)
       (cons (point)
