@@ -211,7 +211,7 @@
       (let* ((track-event (elt track-events i)))
         (midimacs-draw-track-event track-event)))))
 
-(defun midimacs-midimacs-track-event (track-event)
+(defun midimacs-draw-track-event (track-event)
   (insert (if (eq track-event nil)
               "-"
             (midimacs-event-string track-event))))
@@ -627,7 +627,7 @@
           collect (nth 1 (heap-delete-root heap)))))
 
 (defun midimacs-trigger-events ()
-  (loop for (track event) in (midimacs-track-events-at-time midimacs-song-time)
+  (loop for (track event) in (midimacs-track-events-at-beat (midimacs-time-beat midimacs-song-time))
         do (let* ((code (midimacs-event-code event))
                   (init (midimacs-code-init code))
                   (run (midimacs-code-run code)))
