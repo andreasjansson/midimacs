@@ -82,7 +82,15 @@
 (defvar midimacs-scheduled-note-offs nil)
 (defvar midimacs-selection nil)
 
-;(defface midimacs-seq-region-face '((t :inherit 'region)) "Face for midimacs sequencer regions" :group 'midimacs-faces)
+(defface midimacs-x-jump-face-background
+  '((t (:foreground "gray40")))
+  "Face for background of midimacs x-jump"
+  :group 'midimacs)
+
+(defface midimacs-x-jump-face-foreground
+  '((t (:foreground "red" :underline nil)))
+  "Face for foreground of midimacs x-jump"
+  :group 'midimacs)
 
 (defstruct midimacs-event
   code-name
@@ -163,7 +171,17 @@
           (p (point)))
       (erase-buffer)
       (midimacs-draw-top-bar)
+      (insert "\n")
       (midimacs-draw-tracks)
+      (goto-char p))))
+
+(defun midimacs-redraw-top-bar ()
+  (with-current-buffer (midimacs-buffer-seq)
+    (let ((inhibit-read-only t)
+          (p (point)))
+      (goto-char (point-min))
+      (delete-region (point) (line-end-position))
+      (midimacs-draw-top-bar)
       (goto-char p))))
 
 (defun midimacs-draw-top-bar ()
@@ -172,21 +190,25 @@
          (repeat-start-col (+ (midimacs-time-beat midimacs-repeat-start) 1))
          (repeat-end-col (+ (midimacs-time-beat midimacs-repeat-end) 2))
          (position-col (+ (midimacs-time-beat midimacs-song-time) 2))
-         (chars `((,repeat-start-col . "[")
-                  (,repeat-end-col . "]")
-                  (,position-col . ,(midimacs-play-symbol))))
+
+         (chars (list (cons repeat-start-col "[")
+                      (cons repeat-end-col "]")
+                      (cons position-col (midimacs-play-symbol))))
+
          (sorted-chars (sort chars (lambda (a b)
                                      (< (car a) (car b))))))
 
     (loop for (col . s) in sorted-chars do
           (let ((spaces (- col p)))
-            (insert (make-string spaces space))
+            (if (= spaces -1)
+                (progn
+                  (delete-backward-char 1)
+                  (setq s "#"))
+              (insert (make-string spaces space)))
             (insert s)
             (setq p (+ p spaces (length s)))))
 
-    (insert (make-string (max 0 (+ (- midimacs-length p) 2)) space)))
-
-  (insert "\n"))
+    (insert (make-string (max 0 (+ (- midimacs-length p) 2)) space))))
 
 (defun midimacs-play-symbol ()
   (cond ((eq midimacs-state 'playing) "▶")
@@ -601,7 +623,11 @@
     (midimacs-trigger-note-offs)
     (midimacs-trigger-events)
     (midimacs-incr-position)
-    (midimacs-draw)
+
+    ;; only update when we have to
+    (when (= (midimacs-time-tick midimacs-song-time) 0)
+      (midimacs-redraw-top-bar))
+
     (run-at-time (midimacs-wait-time) nil 'midimacs-tick)))
 
 (defun midimacs-incr-position ()
@@ -861,7 +887,8 @@
 
 (defun midimacs-x-jump ()
   (interactive)
-  (let* ((overlay-map (midimacs-x-jump-make-overlay-map))
+  (let* ((background-overlay (midimacs-x-jump-background-overlay))
+         (overlay-map (midimacs-x-jump-make-overlay-map))
          (jump-char (midimacs-read-char-no-quit "Jump to character: ")))
     (when jump-char
       (let* ((c-p-overlay (assoc jump-char overlay-map))
@@ -870,8 +897,15 @@
             (goto-char jump-point)
           (message "Invalid jump point"))))
 
+    (delete-overlay background-overlay)
+
     (loop for (c . (p . overlay)) in overlay-map
           do (delete-overlay overlay))))
+
+(defun midimacs-x-jump-background-overlay ()
+  (let ((overlay (make-overlay (window-start) (window-end))))
+    (overlay-put overlay 'face 'midimacs-x-jump-face-background)
+    overlay))
 
 (defun midimacs-x-jump-make-overlay-map ()
   (let* ((all-line-positions (midimacs-visible-line-positions))
@@ -893,7 +927,7 @@
 
 (defun midimacs-x-jump-make-overlay (p c)
   (let ((ol (make-overlay p (1+ p))))
-    (overlay-put ol 'face 'ace-jump-face-foreground)
+    (overlay-put ol 'face 'midimacs-x-jump-face-foreground)
     (overlay-put ol 'display c)
     ol))
 
