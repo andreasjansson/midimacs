@@ -427,7 +427,8 @@
 
     (if visible-window
         (select-window visible-window)
-      (split-window)
+      (when (one-window-p t)
+        (split-window))
       (other-window 1))
 
     (switch-to-buffer buffer)))
