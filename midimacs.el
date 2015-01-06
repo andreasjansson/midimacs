@@ -1,40 +1,42 @@
 ;; TODO:
-;; make all globals buffer-local to the seq buffer, include
-;; some name in the buffer names.
-
+;; handle parse errors better!
+;; highlight using some syntactic font thing
+;; highlight entire row to show that it doesn't play, but
+;; error specifically as well.
+;; fix x-jump
+;;
+;; set tempo by tapping!
+;;
+;; midi event history per channel!
 
 ;; BUGS:
 ;; cannot save when code doesn't parse
 ;; when midi server goes away we die
-;; cannot select or x-jump when playing
 
 (eval-when-compile
   (require 'cl)
-  (require 'heap))
+  (require 'heap)
+  (require 'picture))
 
-(define-derived-mode midimacs-seq-mode special-mode "midimacs-seq-mode"
-  (midimacs-seq-define-letter-keys)
-  (define-key midimacs-seq-mode-map (kbd "[") 'midimacs-set-repeat-start)
-  (define-key midimacs-seq-mode-map (kbd "]") 'midimacs-set-repeat-end)
-  (define-key midimacs-seq-mode-map (kbd "C-c a") 'midimacs-add-track)
-  (define-key midimacs-seq-mode-map (kbd "C-d") 'midimacs-remove-code)
-  (define-key midimacs-seq-mode-map (kbd "DEL") 'midimacs-remove-code-backward)
-  (define-key midimacs-seq-mode-map (kbd "RET") 'midimacs-seq-enter)
-  (define-key midimacs-seq-mode-map (kbd "C-w") 'midimacs-seq-kill)
-  (define-key midimacs-seq-mode-map (kbd "C-y") 'midimacs-seq-yank)
-  (define-key midimacs-seq-mode-map (kbd "C-x SPC") 'midimacs-toggle-play)
-  (define-key midimacs-seq-mode-map (kbd "SPC") 'midimacs-toggle-play)
-  (define-key midimacs-seq-mode-map (kbd "M-SPC") 'midimacs-play-here)
-  (define-key midimacs-seq-mode-map (kbd "C-<return>") 'midimacs-position-here)
-  (define-key midimacs-seq-mode-map (kbd "C-x C-s") 'midimacs-save)
-  (define-key midimacs-seq-mode-map (kbd "C-x C-w") 'midimacs-save-as)
-  (define-key midimacs-seq-mode-map (kbd "C-x C-f") 'midimacs-open)
-  (define-key midimacs-seq-mode-map (kbd "C-c SPC") 'midimacs-x-jump)
+(define-derived-mode midimacs-seq-mode fundamental-mode "midimacs-seq-mode"
+  (midimacs-extend-picture-mode)
+  (local-set-key (kbd "C-x C-[") 'midimacs-set-repeat-start)
+  (local-set-key (kbd "C-x C-]") 'midimacs-set-repeat-end)
+  (local-set-key (kbd "RET") 'midimacs-seq-enter)
+  (local-set-key (kbd "C-x SPC") 'midimacs-toggle-play)
+  (local-set-key (kbd "M-SPC") 'midimacs-toggle-play)
+  (local-set-key (kbd "C-M-SPC") 'midimacs-play-here)
+  (local-set-key (kbd "C-<return>") 'midimacs-position-here)
+  (local-set-key (kbd "C-x C-s") 'midimacs-save)
+  (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
+  (local-set-key (kbd "C-x C-f") 'midimacs-open)
+  (local-set-key (kbd "C-c SPC") 'midimacs-x-jump)
+  (set (make-local-variable 'after-change-functions) '(midimacs-seq-after-change))
   (setq transient-mark-mode nil)
   (setq truncate-lines t))
 
 (define-derived-mode midimacs-code-mode emacs-lisp-mode "midimacs-code-mode"
-  (define-key midimacs-code-mode-map (kbd "C-x SPC") 'midimacs-toggle-play)
+  (define-key midimacs-code-mode-map (kbd "M-SPC") 'midimacs-toggle-play)
   (define-key midimacs-code-mode-map (kbd "C-x C-s") 'midimacs-save)
   (define-key midimacs-code-mode-map (kbd "C-x C-w") 'midimacs-save-as)
   (define-key midimacs-code-mode-map (kbd "C-x C-f") 'midimacs-open)
@@ -56,7 +58,6 @@
   :group 'midimacs)
 
 (defconst midimacs-ticks-per-beat 24)
-(defconst midimacs-letters "abcdefghijklmnopqrstuvwxyz")
 (defconst midimacs-pitch-numbers '(("c" . 0)
                               ("d" . 2)
                               ("e" . 4)
@@ -67,6 +68,11 @@
 (defconst midimacs-accidental-numbers '((nil . 0)
                                    ("b" . -1)
                                    ("s" . +1)))
+(defconst midimacs-left-bar-length 4)
+(defconst midimacs-top-bar-height 1)
+(defconst midimacs-track-char ?>)
+(defconst midimacs-sustain-char ?.)
+(defconst midimacs-space-char ? )
 
 (defvar midimacs-tracks '())
 (defvar midimacs-codes nil)
@@ -81,6 +87,11 @@
 (defvar midimacs-amidicat-proc nil)
 (defvar midimacs-scheduled-note-offs nil)
 (defvar midimacs-selection nil)
+
+(defface midimacs-error-face
+  '((t (:background "red")))
+  "Face for foreground of midimacs x-jump"
+  :group 'midimacs)
 
 (defface midimacs-x-jump-face-background
   '((t (:foreground "gray40")))
@@ -103,9 +114,9 @@
   run)
 
 (defstruct midimacs-track
-  name
+  channel
   events
-  state
+  (state nil)
   (last-init-time (make-midimacs-time)))
 
 (defstruct midimacs-midi-message
@@ -116,20 +127,6 @@
 (defstruct midimacs-time
   (beat 0)
   (tick 0))
-
-(defun midimacs-seq-define-letter-keys ()
-  (dolist (c (string-to-list midimacs-letters))
-    (lexical-let ((s (string c)))
-
-      (define-key midimacs-seq-mode-map (kbd s)
-        (lambda ()
-          (interactive)
-          (midimacs-add-code-init s nil)))
-
-      (define-key midimacs-seq-mode-map (kbd (upcase s))
-        (lambda ()
-          (interactive)
-          (midimacs-add-code-init s t))))))
 
 (defun midimacs-init ()
   (setq midimacs-tracks '())
@@ -146,7 +143,112 @@
 
   (midimacs-code-close-all-buffers)
   (midimacs-amidicat-proc-init)
-  (midimacs-draw))
+  (midimacs-draw ""))
+
+(defun midimacs-extend-picture-mode ()
+  (use-local-map picture-mode-map)
+  (set (make-local-variable 'picture-killed-rectangle) nil)
+  (set (make-local-variable 'tab-stop-list) (default-value 'tab-stop-list))
+  (set (make-local-variable 'picture-tab-chars)
+       (default-value 'picture-tab-chars))
+  (make-local-variable 'picture-vertical-step)
+  (make-local-variable 'picture-horizontal-step)
+  (set (make-local-variable 'picture-mode-old-truncate-lines) truncate-lines)
+  (setq truncate-lines t)
+  (picture-set-motion 0 1))
+
+(defun midimacs-seq-after-change (begin end length-before)
+  (when (and (> (count-lines 1 end) 1)
+             (not (and (= length-before 1)
+                       (= (- end begin) 0))))
+    (midimacs-set-tracks-from-buffer)))
+
+(defun midimacs-set-tracks-from-buffer ()
+  (destructuring-bind (tracks &optional error-point error-message)
+      (catch 'parse-error (midimacs-parse-tracks-from-buffer))
+    (if error-point
+        (midimacs-display-parse-error error-point error-message)
+      (setq midimacs-tracks tracks))))
+
+(defun midimacs-display-parse-error (error-point error-message)
+  (put-text-property error-point (1+ error-point) 'face 'midimacs-error-face)
+  (remove-text-properties (1+ error-point) (+ error-point 2) 'face)
+  (message error-message))
+
+(defun midimacs-parse-tracks-from-buffer ()
+  (with-current-buffer (midimacs-buffer-seq)
+    (save-excursion
+      (goto-char (point-min))
+      (end-of-line)
+      (forward-char)
+
+      (list
+       (remove nil (loop while (< (point) (point-max))
+                         collect (let ((track (midimacs-parse-track
+                                               (point) (buffer-substring (point) (line-end-position)))))
+                                   (end-of-line)
+                                   (when (< (point) (point-max)) (forward-char))
+                                   track)))))))
+
+(defun midimacs-parse-track (p line)
+  (when (and (> (length line) 0)
+             (= (elt line 0) midimacs-track-char)
+             (>= (length line) 5))
+
+    (when (not (= (elt line 3) midimacs-space-char))
+      (throw 'parse-error (list nil (+ p 3) "There must be a space between channel and codes")))
+
+    (let ((channel (midimacs-parse-channel (1+ p) (substring line 1 3)))
+          (events (midimacs-parse-events (+ p 4) (substring line 4))))
+
+      (loop for event in events
+            if event
+            do (midimacs-maybe-create-code (midimacs-event-code-name event)))
+
+      (make-midimacs-track :channel channel
+                           :events events))))
+
+(defun midimacs-parse-channel (p channel-s)
+  (let ((channel (string-to-number channel-s)))
+    (when (midimacs-string-member " " channel-s)
+      (throw 'parse-error (list nil p "Channel must not contain spaces")))
+    (when (and (= channel 0) (not (equal channel-s "00")))
+      (throw 'parse-error (list nil p "Channel must be a number")))
+    (when (or (< channel 0) (> channel 15))
+      (throw 'parse-error (list nil p "Channel must be between 0 and 15")))
+    channel))
+
+(defun midimacs-parse-events (p codes-s)
+  (let ((chars (string-to-list codes-s))
+        (current nil))
+    (loop for c being the elements of chars
+          using (index i)
+          collect (cond ((= c midimacs-space-char)
+                         (setq current nil)
+                         nil)
+                        ((= c midimacs-sustain-char)
+                         (if current
+                             (make-midimacs-event :code-name current
+                                                  :do-init nil)
+                           (throw 'parse-error (list nil (+ p i) "= without previous code"))))
+                        (t
+                         (setq current c)
+                         (make-midimacs-event :code-name c
+                                              :do-init t))))))
+
+(defun midimacs-maybe-create-code (code-name)
+  (unless (midimacs-get-code code-name)
+    (let ((code (make-midimacs-code :name code-name
+                                    :text (midimacs-code-template code-name))))
+      (puthash code-name code midimacs-codes))))
+
+(defun midimacs-seq-buffer-contents ()
+  (with-current-buffer (midimacs-buffer-seq)
+    (save-excursion
+      (goto-char (point-min))
+      (end-of-line)
+      (forward-char)
+      (buffer-substring (point) (point-max)))))
 
 (defun midimacs-amidicat-proc-init ()
   (interactive)
@@ -164,16 +266,14 @@
                          "amidicat" "--hex" "--port" "129:0" "--noread"))
     (set-process-filter midimacs-amidicat-proc 'midimacs-amidicat-read)))
 
-(defun midimacs-draw ()
-  (interactive)
+(defun midimacs-draw (contents)
   (with-current-buffer (midimacs-buffer-seq)
-    (let ((inhibit-read-only t)
-          (p (point)))
+    (let ((inhibit-read-only t))
       (erase-buffer)
       (midimacs-draw-top-bar)
       (insert "\n")
-      (midimacs-draw-tracks)
-      (goto-char p))))
+      (insert contents)
+      (goto-char (point-min)))))
 
 (defun midimacs-redraw-top-bar ()
   (with-current-buffer (midimacs-buffer-seq)
@@ -185,11 +285,10 @@
       (goto-char p))))
 
 (defun midimacs-draw-top-bar ()
-  (let* ((p 0)
-         (space (string-to-char " "))
-         (repeat-start-col (+ (midimacs-time-beat midimacs-repeat-start) 1))
-         (repeat-end-col (+ (midimacs-time-beat midimacs-repeat-end) 2))
-         (position-col (+ (midimacs-time-beat midimacs-song-time) 2))
+  (let* ((pad ?.)
+         (repeat-start-col (+ (midimacs-time-beat midimacs-repeat-start) (1- midimacs-left-bar-length)))
+         (repeat-end-col (+ (midimacs-time-beat midimacs-repeat-end) midimacs-left-bar-length))
+         (position-col (+ (midimacs-time-beat midimacs-song-time) midimacs-left-bar-length))
 
          (chars (list (cons repeat-start-col "[")
                       (cons repeat-end-col "]")
@@ -198,87 +297,45 @@
          (sorted-chars (sort chars (lambda (a b)
                                      (< (car a) (car b))))))
 
+    (insert (make-string midimacs-left-bar-length (string-to-char " ")))
+
     (loop for (col . s) in sorted-chars do
-          (let ((spaces (- col p)))
+          (let ((spaces (- col (1- (point)))))
             (if (= spaces -1)
                 (progn
                   (delete-backward-char 1)
-                  (setq s "#"))
-              (insert (make-string spaces space)))
-            (insert s)
-            (setq p (+ p spaces (length s)))))
+                  (when (> (point) midimacs-left-bar-length)
+                    (setq s "#")))
+              (insert (make-string spaces pad)))
+            (insert s)))
 
-    (insert (make-string (max 0 (+ (- midimacs-length p) 2)) space))))
+    (insert (make-string (max 0 (+ (- midimacs-length (point)) midimacs-left-bar-length)) pad)))
+  (put-text-property (point-min) (point) 'read-only t))
 
 (defun midimacs-play-symbol ()
   (cond ((eq midimacs-state 'playing) "▶")
         ((eq midimacs-state 'stopped) "◾")))
 
-(defun midimacs-draw-tracks ()
-  (dolist (track midimacs-tracks)
-    (midimacs-draw-track track)))
+(defun midimacs-current-track ()
+  (with-current-buffer (midimacs-buffer-seq)
+    (save-excursion
+      (beginning-of-line)
+      (let ((track
+             (catch 'parse-error
+               (midimacs-parse-track 0 (buffer-substring (point) (line-end-position))))))
+        (when (midimacs-track-p track)
+          track)))))
 
-(defun midimacs-draw-track (track)
-  (insert (midimacs-track-name track))
-  (insert " ")
-  (midimacs-draw-track-events track)
-  (insert "\n"))
-
-(defun midimacs-draw-track-events (track)
-  (let ((track-events (midimacs-track-events track)))
-    (dotimes (i midimacs-length)
-      (let* ((track-event (elt track-events i)))
-        (midimacs-draw-track-event track-event)))))
-
-(defun midimacs-draw-track-event (track-event)
-  (insert (if (eq track-event nil)
-              "-"
-            (midimacs-event-string track-event))))
+(defun midimacs-current-beat ()
+  (with-current-buffer (midimacs-buffer-seq)
+    (midimacs-beat-at-column (current-column))))
 
 (defun midimacs-seq-enter ()
   (interactive)
-  (let* ((track (midimacs-current-track))
-         (beat (midimacs-current-beat))
-         (time (make-midimacs-time :beat beat))
-         (code (midimacs-track-code-at-beat track (midimacs-time-beat time))))
-    (when (and track beat code)
-      (midimacs-code-open-window code))))
-
-(defun midimacs-seq-kill ()
-  (interactive)
-  (destructuring-bind (col-start line-start col-end line-end)
-      (midimacs-selected-rect)
-    (unless (and (midimacs-beat-at-column col-start)
-                 (midimacs-track-at-line line-start)
-                 (midimacs-beat-at-column col-end)
-                 (midimacs-track-at-line line-end))
-      (user-error "Cannot kill region without track or beat"))
-
-    (setq midimacs-selection
-          (loop for line from line-start to line-end
-                collect (let ((track (midimacs-track-at-line line)))
-                          (loop for col from col-start to col-end
-                                collect (let* ((beat (midimacs-beat-at-column col))
-                                               (event (midimacs-track-event-at-beat track beat)))
-                                          (midimacs-track-remove-event-at-beat track beat)
-                                          event))))))
-  (goto-char (mark))
-  (midimacs-draw))
-
-(defun midimacs-column (pos)
-  (save-excursion
-    (goto-char pos)
-    (current-column)))
-
-(defun midimacs-selected-rect ()
-  (let ((col-mark (midimacs-column (mark)))
-        (line-mark (count-lines 1 (mark)))
-        (col-point (midimacs-column (point)))
-        (line-point (count-lines 1 (point))))
-    (list (min col-mark col-point)
-          (min line-mark line-point)
-          (max col-mark col-point)
-          (max line-mark line-point))))
+  (let ((track (midimacs-current-track))
+        (beat (midimacs-current-beat)))
+    (when (and track beat)
+      (midimacs-code-open-window (midimacs-track-code-at-beat track beat)))))
 
 (defun midimacs-set-repeat-start ()
   (interactive)
@@ -287,49 +344,19 @@
     (let ((new-repeat-start (make-midimacs-time :beat (midimacs-current-beat))))
       (midimacs-check-acceptable-repeat new-repeat-start midimacs-repeat-end)
       (setq midimacs-repeat-start new-repeat-start)))
-  (midimacs-draw))
-
-(defun midimacs-seq-yank ()
-  (interactive)
-  (when midimacs-selection
-    (let* ((col-start (midimacs-column (point)))
-           (line-start (count-lines 1 (point)))
-           (cols (length (car midimacs-selection)))
-           (lines (length midimacs-selection)))
-
-      (loop for line below lines
-            do (let ((track (midimacs-track-at-line (+ line-start line))))
-                 (when track
-                   (loop for col below cols
-                         do (let ((beat (midimacs-beat-at-column (+ col-start col))))
-                              (when beat
-                                (midimacs-track-set-event-at-beat
-                                 track beat (nth col (nth line midimacs-selection)))))))))))
-  (midimacs-draw))
+  (midimacs-redraw-top-bar))
 
 (defun midimacs-set-repeat-end ()
   (interactive)
   (let ((new-repeat-end (make-midimacs-time :beat (midimacs-current-beat))))
     (midimacs-check-acceptable-repeat midimacs-repeat-start new-repeat-end)
     (setq midimacs-repeat-end new-repeat-end))
-  (midimacs-draw))
+  (midimacs-redraw-top-bar))
 
 (defun midimacs-check-acceptable-repeat (start end)
   (let ((beats (- (midimacs-time-beat start) (midimacs-time-beat end))))
     (when (= beats 0)
       (user-error "repeat start and repeat end must be different"))))
-
-(defun midimacs-add-track ()
-  (interactive)
-  (let ((track (make-midimacs-track :name (midimacs-next-track-name)
-                               :events (make-vector midimacs-length nil)
-                               :state nil)))
-    (setq midimacs-tracks (append midimacs-tracks (list track))))
-
-  (midimacs-draw))
-
-(defun midimacs-next-track-name ()
-  (string (elt midimacs-letters (length midimacs-tracks))))
 
 (defun midimacs-track-event-at-beat (track beat)
   (elt (midimacs-track-events track) beat))
@@ -354,61 +381,9 @@
           if (setq event (midimacs-track-event-at-beat track beat))
           collect (list track event))))
 
-(defun midimacs-check-track (track)
-  (unless track
-    (user-error "No track here")))
-
 (defun midimacs-check-beat (beat)
   (unless (and beat (>= beat 0))
     (user-error "No beat here")))
-
-(defun midimacs-remove-code ()
-  (interactive)
-  (let ((track (midimacs-current-track))
-        (beat (midimacs-current-beat)))
-    (midimacs-check-track track)
-    (midimacs-check-beat beat)
-    (midimacs-track-remove-event-at-beat track beat))
-  (midimacs-draw))
-
-(defun midimacs-remove-code-backward ()
-  (interactive)
-  (let ((track (midimacs-current-track))
-        (beat (1- (midimacs-current-beat))))
-    (midimacs-check-track track)
-    (midimacs-check-beat beat)
-    (midimacs-track-remove-event-at-beat track beat))
-  (backward-char)
-  (midimacs-draw))
-
-(defun midimacs-add-code (c)
-  (interactive "cCode name: ")
-  (midimacs-add-code-init c t))
-
-(defun midimacs-add-code-init (c do-init)
-  (let ((track (midimacs-current-track))
-        (beat (midimacs-current-beat))
-        (code-name (midimacs-valid-letter c)))
-    (midimacs-check-track track)
-    (midimacs-check-beat beat)
-
-    (midimacs-track-add-code-init-at-beat track beat c do-init))
-
-  (midimacs-draw)
-  (goto-char (1+ (point))))
-
-(defun midimacs-track-add-code-init-at-beat (track beat c do-init)
-  (midimacs-get-or-make-code code-name)
-  (midimacs-track-set-event-at-beat track beat
-                               (make-midimacs-event :code-name code-name
-                                               :do-init do-init)))
-
-(defun midimacs-get-or-make-code (code-name)
-  (or (midimacs-get-code code-name)
-      (let ((code (make-midimacs-code :name code-name
-                                 :text (midimacs-code-template code-name))))
-        (puthash code-name code midimacs-codes)
-        code)))
 
 (defun midimacs-get-code (code-name)
   (gethash code-name midimacs-codes))
@@ -433,46 +408,15 @@
 
     (switch-to-buffer buffer)))
 
-(defun midimacs-current-track ()
-  (interactive)
-  (with-current-buffer (midimacs-buffer-seq)
-    (save-excursion
-      (midimacs-track-at-line (midimacs-current-line)))))
-
-(defun midimacs-track-at-line (line)
-  (when (>= line 2)
-    (nth (- line 2) midimacs-tracks)))
-
 (defun midimacs-beat-at-column (col)
-  (when (>= col 2)
-    (- col 2)))
-
-(defun midimacs-current-beat ()
-  (interactive)
-  (with-current-buffer (midimacs-buffer-seq)
-    (save-excursion
-      (midimacs-beat-at-column (current-column)))))
-
-(defun midimacs-valid-letter (c)
-  (let ((vc (downcase (if (characterp c)
-                          (string c)
-                        c))))
-    (unless (midimacs-string-member vc midimacs-letters)
-      (user-error "Not a valid letter"))
-    vc))
+  (when (>= col midimacs-left-bar-length)
+    (- col midimacs-left-bar-length)))
 
 (defun midimacs-string-member (c s)
   (member (if (stringp c)
               (string-to-char c)
             c)
           (string-to-list s)))
-
-(defun midimacs-current-line ()
-  (save-restriction
-    (widen)
-    (save-excursion
-      (beginning-of-line)
-      (1+ (count-lines 1 (point))))))
 
 (defun midimacs-set-buffer-seq ()
   (set-buffer (midimacs-buffer-seq-name)))
@@ -484,7 +428,7 @@
   "*midimacs-seq*")
 
 (defun midimacs-buffer-code-name (code-name)
-  (concat "*midimacs-code-" code-name "*"))
+  (concat "*midimacs-code-" (string code-name) "*"))
 
 (defun midimacs-buffer-seq ()
   (get-buffer (midimacs-buffer-seq-name)))
@@ -506,15 +450,15 @@
 
 (defun midimacs-code-template (code-name)
   (concat
-   "(midimacs-code \"" code-name "\"
+   "(midimacs-code ?" (string code-name) "
 
  ;; init
- (lambda (song-time)
+ (lambda (channel song-time)
 
    nil)
 
  ;; run
- (lambda (song-time rel-time state)
+ (lambda (channel song-time rel-time state)
 
    state)
 
@@ -530,7 +474,7 @@
     (setf (midimacs-code-init code) init
           (midimacs-code-run code) run
           (midimacs-code-text code) (buffer-string)))
-  (message (concat "updated code " name)))
+  (message (concat "updated code " (string name))))
 
 (cl-defun midimacs-note (channel pitch-raw duration-raw &optional (velocity 100) (off-velocity 0))
                                         ; TODO: validation
@@ -597,15 +541,14 @@
 (defun midimacs-toggle-play ()
   (interactive)
   (cond ((eq midimacs-state 'playing) (midimacs-stop))
-        ((eq midimacs-state 'stopped) (midimacs-play)))
-  (midimacs-draw))
+        ((eq midimacs-state 'stopped) (midimacs-play))))
 
 (defun midimacs-position-here ()
   (interactive)
   (let ((beat (midimacs-current-beat)))
     (midimacs-check-beat beat)
     (setq midimacs-song-time (make-midimacs-time :beat beat)))
-  (midimacs-draw))
+  (midimacs-redraw-top-bar))
 
 (defun midimacs-play-here ()
   (interactive)
@@ -654,17 +597,24 @@
   (loop for (track event) in (midimacs-track-events-at-beat (midimacs-time-beat midimacs-song-time))
         do (let* ((code (midimacs-event-code event))
                   (init (midimacs-code-init code))
-                  (run (midimacs-code-run code)))
+                  (run (midimacs-code-run code))
+                  (channel (midimacs-track-channel track)))
 
              (when (and init
                         (midimacs-event-do-init event)
                         (eq (midimacs-time-tick midimacs-song-time) 0))
-               (setf (midimacs-track-state track) (funcall init midimacs-song-time))
+
+               (setf (midimacs-track-state track)
+                     (funcall init
+                              channel
+                              midimacs-song-time))
+
                (setf (midimacs-track-last-init-time track) midimacs-abs-time))
 
              (when run
                (setf (midimacs-track-state track)
                      (funcall run
+                              channel
                               midimacs-song-time
                               (midimacs-track-rel-time track)
                               (midimacs-track-state track)))))))
@@ -679,17 +629,16 @@
 
 (defun midimacs-stop ()
   (midimacs-midi-flush-note-offs)
-  (setq midimacs-state 'stopped))
+  (setq midimacs-state 'stopped)
+  (midimacs-redraw-top-bar))
 
 (defun midimacs-code-get-open-buffers ()
   (remove nil (loop for name being the hash-keys of midimacs-codes
                     collect (midimacs-buffer-code name))))
 
 (defun midimacs-code-close-all-buffers ()
-  (dolist (letter (string-to-list midimacs-letters))
-    (let ((buffer-name (midimacs-buffer-code-name (string letter))))
-      (when (get-buffer buffer-name)
-        (kill-buffer buffer-name)))))
+  ; TODO
+  )
 
 (defun midimacs-code-update-open-buffers ()
   (dolist (buffer (midimacs-code-get-open-buffers))
@@ -715,10 +664,10 @@
 (defun midimacs-serialize-project ()
   (prin1-to-string (list "midimacs project"
                          "v1"
-                         midimacs-tracks
                          midimacs-codes
                          midimacs-repeat-start
-                         midimacs-repeat-end)))
+                         midimacs-repeat-end
+                         (midimacs-seq-buffer-contents))))
 
 (defun midimacs-open (filename)
   (interactive "fFind midimacs project: ")
@@ -727,16 +676,15 @@
              (buffer-string))))
 
     (midimacs-unserialize-project s))
-  (setq midimacs-filename filename)
-  (midimacs-draw))
+  (setq midimacs-filename filename))
 
 (defun midimacs-unserialize-project (s)
   (destructuring-bind (header
                        version
-                       tracks
                        codes
                        repeat-start
-                       repeat-end)
+                       repeat-end
+                       seq-buffer-contents)
       (read s)
 
     (unless (equal header "midimacs project")
@@ -746,11 +694,11 @@
 
     (midimacs-init)
 
-    (setq midimacs-tracks tracks)
     (setq midimacs-codes codes)
     (setq midimacs-repeat-start repeat-start)
     (setq midimacs-repeat-end repeat-end)
-    (setq midimacs-song-time midimacs-repeat-start)))
+    (setq midimacs-song-time midimacs-repeat-start)
+    (midimacs-draw seq-buffer-contents)))
 
 (defun midimacs-time-to-ticks (time)
   (+ (midimacs-time-tick time)
@@ -838,15 +786,16 @@
   (cond ((symbolp x) (symbol-name x))
         ((numberp x) (number-to-string x))))
 
-(defmacro midimacs-score (channel notes)
+(defmacro midimacs-score (notes &rest channel)
+  "channel defaults to track channel"
   (cons
    'progn
    (loop for (onset-sym pitch-sym dur-sym) in notes
-         collect (let ((onset (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym)))
-                       (pitch (midimacs-parse-pitch (symbol-name pitch-sym)))
-                       (dur (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))))
-                   `(when (midimacs-time= rel-time ,onset)
-                      (midimacs-note ,channel ,pitch ,dur))))))
+         with onset = (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym))
+         with pitch = (midimacs-parse-pitch (symbol-name pitch-sym))
+         with dur = (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))
+         collect `(when (midimacs-time= rel-time ,onset)
+                    (midimacs-note (or ,channel channel) ,pitch ,dur)))))
 
 (defun midimacs-visible-line-positions ()
   (save-excursion
@@ -874,10 +823,9 @@
       (move-to-column col)
       (cons (point)
             (loop while (< (line-number-at-pos) lines)
-                  collect (progn
-                            (forward-line)
-                            (move-to-column col)
-                            (point)))))))
+                  do (forward-line)
+                  do (move-to-column col)
+                  collect col)))))
 
 (defun midimacs-read-char-no-quit (q)
   (let* ((inhibit-quit t)
