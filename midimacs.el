@@ -312,10 +312,11 @@
 
 (defun midimacs-seq-enter ()
   (interactive)
-  (let ((track (midimacs-current-track))
-        (beat (midimacs-current-beat)))
-    (when (and track beat)
-      (midimacs-code-open-window (midimacs-track-code-at-beat track beat)))))
+  (let* ((track (midimacs-current-track))
+         (beat (midimacs-current-beat))
+         (code (when (and track beat) (midimacs-track-code-at-beat track beat))))
+    (when code
+      (midimacs-code-open-window code))))
 
 (defun midimacs-set-repeat-start ()
   (interactive)
