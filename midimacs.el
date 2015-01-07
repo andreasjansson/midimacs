@@ -1,8 +1,6 @@
 ;; TODO:
 ;; handle parse errors better!
-;; highlight using some syntactic font thing
-;; highlight entire row to show that it doesn't play, but
-;; error specifically as well.
+;; be more forgiving but use font-lock to show where the problems are.
 ;; fix x-jump
 ;;
 ;; set tempo by tapping!
@@ -31,8 +29,9 @@
   (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
   (local-set-key (kbd "C-c SPC") 'midimacs-x-jump)
-  (set (make-local-variable 'after-change-functions) '(midimacs-seq-after-change))
-  (setq transient-mark-mode nil)
+  (setq-local after-change-functions '(midimacs-seq-after-change))
+  (setq-local transient-mark-mode nil)
+  (setq-local font-lock-defaults `(((,(midimacs-bad-track-regex) . font-lock-warning-face))))
   (setq truncate-lines t))
 
 (define-derived-mode midimacs-code-mode emacs-lisp-mode "midimacs-code-mode"
@@ -90,7 +89,7 @@
 
 (defface midimacs-error-face
   '((t (:background "red")))
-  "Face for foreground of midimacs x-jump"
+  "midimacs error face"
   :group 'midimacs)
 
 (defface midimacs-x-jump-face-background
@@ -164,42 +163,27 @@
     (midimacs-set-tracks-from-buffer)))
 
 (defun midimacs-set-tracks-from-buffer ()
-  (destructuring-bind (tracks &optional error-point error-message)
-      (catch 'parse-error (midimacs-parse-tracks-from-buffer))
-    (if error-point
-        (midimacs-display-parse-error error-point error-message)
-      (setq midimacs-tracks tracks))))
-
-(defun midimacs-display-parse-error (error-point error-message)
-  (put-text-property error-point (1+ error-point) 'face 'midimacs-error-face)
-  (remove-text-properties (1+ error-point) (+ error-point 2) 'face)
-  (message error-message))
-
-(defun midimacs-parse-tracks-from-buffer ()
   (with-current-buffer (midimacs-buffer-seq)
     (save-excursion
       (goto-char (point-min))
       (end-of-line)
       (forward-char)
 
-      (list
-       (remove nil (loop while (< (point) (point-max))
-                         collect (let ((track (midimacs-parse-track
-                                               (point) (buffer-substring (point) (line-end-position)))))
-                                   (end-of-line)
-                                   (when (< (point) (point-max)) (forward-char))
-                                   track)))))))
+      (setq midimacs-tracks
+            (remove nil (loop while (< (point) (point-max))
+                              collect (let* ((track-s (buffer-substring (point) (line-end-position)))
+                                             (track (midimacs-parse-track track-s)))
+                                        (end-of-line)
+                                        (when (< (point) (point-max)) (forward-char))
+                                        track)))))))
 
-(defun midimacs-parse-track (p line)
-  (when (and (> (length line) 0)
-             (= (elt line 0) midimacs-track-char)
-             (>= (length line) 5))
+(defun midimacs-parse-track (line)
+  (when (midimacs-string-is-track line)
 
-    (when (not (= (elt line 3) midimacs-space-char))
-      (throw 'parse-error (list nil (+ p 3) "There must be a space between channel and codes")))
-
-    (let ((channel (midimacs-parse-channel (1+ p) (substring line 1 3)))
-          (events (midimacs-parse-events (+ p 4) (substring line 4))))
+    (let* ((channel-s (substring line 1 3))
+           (channel (string-to-number channel-s))
+           (events-s (substring line 4))
+           (events (midimacs-parse-events events-s)))
 
       (loop for event in events
             if event
@@ -208,17 +192,18 @@
       (make-midimacs-track :channel channel
                            :events events))))
 
-(defun midimacs-parse-channel (p channel-s)
-  (let ((channel (string-to-number channel-s)))
-    (when (midimacs-string-member " " channel-s)
-      (throw 'parse-error (list nil p "Channel must not contain spaces")))
-    (when (and (= channel 0) (not (equal channel-s "00")))
-      (throw 'parse-error (list nil p "Channel must be a number")))
-    (when (or (< channel 0) (> channel 15))
-      (throw 'parse-error (list nil p "Channel must be between 0 and 15")))
-    channel))
+(defun midimacs-string-is-track (track-s)
+  (let* ((channel-regex ">\\(0[0-9]\\|1[0-5]\\)")
+         (track-regex
+          (concat
+           "^"
+           channel-regex
+           "..+"
+           "$")))
 
-(defun midimacs-parse-events (p codes-s)
+    (string-match track-regex track-s)))
+
+(defun midimacs-parse-events (codes-s)
   (let ((chars (string-to-list codes-s))
         (current nil))
     (loop for c being the elements of chars
@@ -227,10 +212,9 @@
                          (setq current nil)
                          nil)
                         ((= c midimacs-sustain-char)
-                         (if current
+                         (when current
                              (make-midimacs-event :code-name current
-                                                  :do-init nil)
-                           (throw 'parse-error (list nil (+ p i) "= without previous code"))))
+                                                  :do-init nil)))
                         (t
                          (setq current c)
                          (make-midimacs-event :code-name c
@@ -320,11 +304,7 @@
   (with-current-buffer (midimacs-buffer-seq)
     (save-excursion
       (beginning-of-line)
-      (let ((track
-             (catch 'parse-error
-               (midimacs-parse-track 0 (buffer-substring (point) (line-end-position))))))
-        (when (midimacs-track-p track)
-          track)))))
+      (midimacs-string-is-track (buffer-substring (point) (line-end-position))))))
 
 (defun midimacs-current-beat ()
   (with-current-buffer (midimacs-buffer-seq)
@@ -887,6 +867,76 @@
     (setq midimacs-bpm bpm)
     (when (eq state 'playing)
       (midimacs-play))))
+
+
+(defun midimacs-bad-track-regex ()
+  (let* ((not-a-two-char-number
+          (concat
+           "\\("
+           "."
+           "[^0-9]"
+           "\\|"
+           "[^0-9]"
+           "."
+           "\\)"))
+
+         (greater-than-15
+          (concat
+           "\\("
+           "[2-9]."
+           "\\|"
+           "1[6-9]"
+           "\\)"))
+
+         (bad-channel
+          (concat
+           "\\("
+           not-a-two-char-number
+           "\\|"
+           greater-than-15
+           "\\)"))
+
+         (less-than-10 "0[0-9]")
+         (10-to-15 "1[0-5]")
+
+         (good-channel
+          (concat
+           "\\("
+           less-than-10
+           "\\|"
+           10-to-15
+           "\\)"))
+
+         (space " ")
+         (not-space "[^ ]")
+
+         (period-at-beginning "\\..*")
+         (period-after-whitespace ".* \\..*")
+
+         (bad-events
+          (concat
+           "\\("
+           period-at-beginning
+           "\\|"
+           period-after-whitespace
+           "\\)")))
+
+    (concat
+     "^"
+     ">"
+     "\\("
+     bad-channel
+     ".*"
+     "\\|"
+     good-channel
+     not-space
+     ".*"
+     "\\|"
+     good-channel
+     space
+     bad-events
+     "\\)"
+     "$")))
 
 (provide 'midimacs)
 ;;; midimacs.el ends here
