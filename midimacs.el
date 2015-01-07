@@ -101,7 +101,7 @@
 
 (defstruct midimacs-event
   code-name
-  do-init)
+  start-time)
 
 (defstruct midimacs-code
   name
@@ -202,7 +202,8 @@
 
 (defun midimacs-parse-events (codes-s)
   (let ((chars (string-to-list codes-s))
-        (current nil))
+        (current nil)
+        (start-time nil))
     (loop for c being the elements of chars
           using (index i)
           collect (cond ((= c midimacs-space-char)
@@ -211,11 +212,11 @@
                         ((= c midimacs-sustain-char)
                          (when current
                              (make-midimacs-event :code-name current
-                                                  :do-init nil)))
+                                                  :start-time start-time)))
                         (t
                          (setq current c)
-                         (make-midimacs-event :code-name c
-                                              :do-init t))))))
+                         (setq start-time (make-midimacs-time :beat i))
+                         (make-midimacs-event :code-name c))))))
 
 (defun midimacs-maybe-create-code (code-name)
   (unless (midimacs-get-code code-name)
@@ -344,9 +345,6 @@
     (when event
       (midimacs-event-code event))))
 
-(defun midimacs-track-rel-time (track)
-  (midimacs-time- midimacs-abs-time (midimacs-track-last-init-time track)))
-
 (defun midimacs-track-set-event-at-beat (track beat event)
   (aset (midimacs-track-events track) beat event))
 
@@ -358,6 +356,12 @@
     (loop for track in midimacs-tracks
           if (setq event (midimacs-track-event-at-beat track beat))
           collect (list track event))))
+
+(defun midimacs-event-rel-time (event time)
+  (let ((event-time (midimacs-event-start-time event)))
+    (if event-time
+        (midimacs-time- time event-time)
+      (make-midimacs-time :tick (midimacs-time-tick time)))))
 
 (defun midimacs-check-beat (beat)
   (unless (and beat (>= beat 0))
@@ -418,20 +422,12 @@
   (let ((code-name (midimacs-event-code-name track-event)))
     (midimacs-get-code code-name)))
 
-(defun midimacs-event-string (track-event)
-  (let* ((code (midimacs-event-code track-event))
-         (do-init (midimacs-event-do-init track-event))
-         (code-name (midimacs-code-name code)))
-    (if do-init
-        (upcase code-name)
-      code-name)))
-
 (defun midimacs-code-template (code-name)
   (concat
    "(midimacs-code ?" (string code-name) "
 
  ;; init
- (lambda (channel song-time rel-time state)
+ (lambda (channel song-time state)
 
    nil)
 
@@ -583,14 +579,13 @@
                   (channel (midimacs-track-channel track)))
 
              (when (and init
-                        (midimacs-event-do-init event)
+                        (not (midimacs-event-start-time event))
                         (eq (midimacs-time-tick midimacs-song-time) 0))
 
                (setf (midimacs-track-state track)
                      (funcall init
                               channel
                               midimacs-song-time
-                              (midimacs-track-rel-time track)
                               (midimacs-track-state track)))
 
                (setf (midimacs-track-last-init-time track) midimacs-abs-time))
@@ -600,7 +595,7 @@
                      (funcall run
                               channel
                               midimacs-song-time
-                              (midimacs-track-rel-time track)
+                              (midimacs-event-rel-time event midimacs-song-time)
                               (midimacs-track-state track)))))))
 
 (defun midimacs-wait-time ()
