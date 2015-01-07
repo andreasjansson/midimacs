@@ -304,7 +304,7 @@
   (with-current-buffer (midimacs-buffer-seq)
     (save-excursion
       (beginning-of-line)
-      (midimacs-string-is-track (buffer-substring (point) (line-end-position))))))
+      (midimacs-parse-track (buffer-substring (point) (line-end-position))))))
 
 (defun midimacs-current-beat ()
   (with-current-buffer (midimacs-buffer-seq)
