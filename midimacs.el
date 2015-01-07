@@ -1,7 +1,4 @@
 ;; TODO:
-;; handle parse errors better!
-;; be more forgiving but use font-lock to show where the problems are.
-;; fix x-jump
 ;;
 ;; set tempo by tapping!
 ;;
@@ -434,7 +431,7 @@
    "(midimacs-code ?" (string code-name) "
 
  ;; init
- (lambda (channel song-time)
+ (lambda (channel song-time rel-time state)
 
    nil)
 
@@ -457,7 +454,7 @@
           (midimacs-code-text code) (buffer-string)))
   (message (concat "updated code " (string name))))
 
-(cl-defun midimacs-note (channel pitch-raw duration-raw &optional (velocity 100) (off-velocity 0))
+(cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity 100) (off-velocity 0))
                                         ; TODO: validation
 
   (setq pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
@@ -474,6 +471,10 @@
   (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration)
                               (midimacs-midi-message-note-off channel pitch off-velocity))
   (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity)))
+
+(cl-defun midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity 100) (off-velocity 0))
+  (loop for pitch-raw in pitches-raw
+        do (midimacs-play-note channel pitch-raw duration-raw velocity off-velocity)))
 
 (defun midimacs-midi-message-note-on (channel pitch velocity)
   (make-midimacs-midi-message :status (+ #x90 channel)
@@ -588,7 +589,9 @@
                (setf (midimacs-track-state track)
                      (funcall init
                               channel
-                              midimacs-song-time))
+                              midimacs-song-time
+                              (midimacs-track-rel-time track)
+                              (midimacs-track-state track)))
 
                (setf (midimacs-track-last-init-time track) midimacs-abs-time))
 
@@ -772,11 +775,23 @@
   (cons
    'progn
    (loop for (onset-sym pitch-sym dur-sym) in notes
-         with onset = (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym))
-         with pitch = (midimacs-parse-pitch (symbol-name pitch-sym))
-         with dur = (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))
+         for onset = (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym))
+         for pitch = (midimacs-parse-pitch (symbol-name pitch-sym))
+         for dur = (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))
          collect `(when (midimacs-time= rel-time ,onset)
-                    (midimacs-note (or ,channel channel) ,pitch ,dur)))))
+                    (midimacs-play-note (or ,channel channel) ,pitch ,dur)))))
+
+(defmacro midimacs-timed (timed-funcs)
+  (cons
+   'progn
+   (loop for (onset-sym on-func dur-sym off-func) in timed-funcs
+         for on-time = (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym))
+         for dur = (when dur-sym (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym)))
+         for off-time = (when dur-sym (midimacs-time+ on-time dur))
+         collect `(cond ((midimacs-time= rel-time ,on-time)
+                         (setq state ((lambda (state) ,on-func) state)))
+                        ((and ,off-time ,off-func (midimacs-time= rel-time ,off-time))
+                         (setq state ((lambda (state) ,off-func) state)))))))
 
 (defun midimacs-visible-line-positions ()
   (save-excursion
