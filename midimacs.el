@@ -683,6 +683,12 @@
   (+ (midimacs-time-tick time)
      (* (midimacs-time-beat time) midimacs-ticks-per-beat)))
 
+(defun midimacs-ticks-to-time (ticks)
+  (let ((beat (floor (/ ticks midimacs-ticks-per-beat)))
+        (tick (% ticks midimacs-ticks-per-beat)))
+    (make-midimacs-time :beat beat
+                        :tick tick)))
+
 (defun midimacs-time< (a b)
   (let ((beat-a (midimacs-time-beat a))
         (beat-b (midimacs-time-beat b))
@@ -702,17 +708,20 @@
 (defun midimacs-time> (a b)
   (not (midimacs-time<= a b)))
 
-(defun midimacs-time+ (a b)
-  (let* ((abs-tick (+ (midimacs-time-tick a) (midimacs-time-tick b)))
-         (abs-beat (+ (midimacs-time-beat a) (midimacs-time-beat b)))
-         (tick (mod abs-tick midimacs-ticks-per-beat))
-         (beat (+ abs-beat (floor (/ (float abs-tick) midimacs-ticks-per-beat)))))
-    (make-midimacs-time :beat beat
-                   :tick tick)))
+(defun midimacs-time+ (&rest times)
+  (let ((ticks (loop for time in times
+                     sum (midimacs-time-to-ticks time))))
+    (midimacs-ticks-to-time ticks)))
 
-(defun midimacs-time- (a b)
-  (midimacs-time+ a (make-midimacs-time :beat (- (midimacs-time-beat b))
-                              :tick (- (midimacs-time-tick b)))))
+(defun midimacs-time- (&rest times)
+  (let ((ticks (cond ((= (length times) 0) 0)
+                     ((= (length times) 1) (- (midimacs-time-to-ticks (car times))))
+                     (t (let* ((car-ticks (midimacs-time-to-ticks (car times)))
+                               (ticks (loop for time in (cdr times)
+                                            sum (midimacs-time-to-ticks time))))
+                          (- car-ticks ticks))))))
+
+    (midimacs-ticks-to-time ticks)))
 
 (defun midimacs-make-scheduled-note-offs-heap ()
   (make-heap (lambda (a b) (midimacs-time< (nth 0 a) (nth 0 b)))))
@@ -728,17 +737,18 @@
             frac-regex
             "\\)$")))
 
-(defun midimacs-parse-time (s)
-  (if (string-match (midimacs-time-regex) s)
-      (let* ((beat-s (or (match-string 1 s) (match-string 2 s)))
-             (frac-num-s (or (match-string 3 s) (match-string 5 s)))
-             (frac-denom-s (or (match-string 4 s) (match-string 6 s)))
-             (beat (if beat-s (string-to-number beat-s) 0))
-             (frac-num (when frac-num-s (string-to-number frac-num-s)))
-             (frac-denom (when frac-denom-s (string-to-number frac-denom-s)))
-             (tick (if frac-num (midimacs-frac-to-tick frac-num frac-denom) 0)))
-        (make-midimacs-time :beat beat :tick tick))
-    (error (format "Couldn't parse time \"%s\"" s))))
+(defun midimacs-parse-time (ss)
+  (let ((s (midimacs-sym-or-num-to-string ss)))
+    (if (string-match (midimacs-time-regex) s)
+        (let* ((beat-s (or (match-string 1 s) (match-string 2 s)))
+               (frac-num-s (or (match-string 3 s) (match-string 5 s)))
+               (frac-denom-s (or (match-string 4 s) (match-string 6 s)))
+               (beat (if beat-s (string-to-number beat-s) 0))
+               (frac-num (when frac-num-s (string-to-number frac-num-s)))
+               (frac-denom (when frac-denom-s (string-to-number frac-denom-s)))
+               (tick (if frac-num (midimacs-frac-to-tick frac-num frac-denom) 0)))
+          (make-midimacs-time :beat beat :tick tick))
+      (error (format "Couldn't parse time \"%s\"" s)))))
 
 (defun midimacs-frac-to-tick (num denom)
   (let ((tick (/ (float (* num midimacs-ticks-per-beat)) denom)))
@@ -762,7 +772,8 @@
     (error (format "Couldn't parse pitch \"%s\"" s))))
 
 (defun midimacs-sym-or-num-to-string (x)
-  (cond ((symbolp x) (symbol-name x))
+  (cond ((stringp x) x)
+        ((symbolp x) (symbol-name x))
         ((numberp x) (number-to-string x))))
 
 (defmacro midimacs-score (notes &rest channel)
@@ -774,10 +785,11 @@
            for onset-sym = (when (= (length symbols) 3) (nth 0 symbols))
            for pitch-sym = (if (= (length symbols) 3) (nth 1 symbols) (nth 0 symbols))
            for dur-sym = (if (= (length symbols) 3) (nth 2 symbols) (nth 1 symbols))
-           for onset = (if onset-sym (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym)) cum-time)
-           for pitch = (midimacs-parse-pitch (symbol-name pitch-sym))
-           for dur = (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))
+           for onset = (if onset-sym (midimacs-parse-time onset-sym) cum-time)
+           for pitch = (unless (eq '- pitch-sym) (midimacs-parse-pitch (symbol-name pitch-sym)))
+           for dur = (midimacs-parse-time dur-sym)
            do (setq cum-time (midimacs-time+ cum-time dur))
+           when pitch
            collect `(when (midimacs-time= rel-time ,onset)
                       (midimacs-play-note (or ,channel channel) ,pitch ,dur))))))
 
@@ -785,8 +797,8 @@
   (cons
    'progn
    (loop for (onset-sym on-func dur-sym off-func) in timed-funcs
-         for on-time = (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym))
-         for dur = (when dur-sym (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym)))
+         for on-time = (midimacs-parse-time onset-sym)
+         for dur = (when dur-sym (midimacs-parse-time dur-sym))
          for off-time = (when dur-sym (midimacs-time+ on-time dur))
          collect `(cond ((midimacs-time= rel-time ,on-time)
                          (setq state ((lambda (state) ,on-func) state)))
