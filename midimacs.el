@@ -767,14 +767,19 @@
 
 (defmacro midimacs-score (notes &rest channel)
   "channel defaults to track channel"
-  (cons
-   'progn
-   (loop for (onset-sym pitch-sym dur-sym) in notes
-         for onset = (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym))
-         for pitch = (midimacs-parse-pitch (symbol-name pitch-sym))
-         for dur = (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))
-         collect `(when (midimacs-time= rel-time ,onset)
-                    (midimacs-play-note (or ,channel channel) ,pitch ,dur)))))
+  (let ((cum-time (make-midimacs-time)))
+    (cons
+     'progn
+     (loop for symbols in notes
+           for onset-sym = (when (= (length symbols) 3) (nth 0 symbols))
+           for pitch-sym = (if (= (length symbols) 3) (nth 1 symbols) (nth 0 symbols))
+           for dur-sym = (if (= (length symbols) 3) (nth 2 symbols) (nth 1 symbols))
+           for onset = (if onset-sym (midimacs-parse-time (midimacs-sym-or-num-to-string onset-sym)) cum-time)
+           for pitch = (midimacs-parse-pitch (symbol-name pitch-sym))
+           for dur = (midimacs-parse-time (midimacs-sym-or-num-to-string dur-sym))
+           do (setq cum-time (midimacs-time+ cum-time dur))
+           collect `(when (midimacs-time= rel-time ,onset)
+                      (midimacs-play-note (or ,channel channel) ,pitch ,dur))))))
 
 (defmacro midimacs-timed (timed-funcs)
   (cons
