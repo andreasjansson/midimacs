@@ -1,7 +1,5 @@
 ;; TODO:
 ;;
-;; set tempo by tapping!
-;;
 ;; midi event history per channel!
 
 ;; BUGS:
