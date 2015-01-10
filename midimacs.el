@@ -25,7 +25,7 @@
   (local-set-key (kbd "C-x C-s") 'midimacs-save)
   (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
-  (local-set-key (kbd "C-c SPC") 'midimacs-x-jump)
+;;  (local-set-key (kbd "C-c SPC") 'midimacs-x-jump)
   (setq-local after-change-functions '(midimacs-seq-after-change))
   (setq-local transient-mark-mode nil)
   (setq-local font-lock-defaults `(((,(midimacs-bad-track-regex) . font-lock-warning-face))))
@@ -82,21 +82,23 @@
 (defvar midimacs-filename nil)
 (defvar midimacs-amidicat-proc nil)
 (defvar midimacs-scheduled-note-offs nil)
-(defvar midimacs-selection nil)
+(defvar midimacs-repeat-start-overlay nil)
+(defvar midimacs-repeat-end-overlay nil)
+(defvar midimacs-play-overlay nil)
 
-(defface midimacs-error-face
-  '((t (:background "red")))
-  "midimacs error face"
+(defface midimacs-top-bar-background-face
+  '((t (:foreground "dim gray")))
+  "Face for top bar number markers"
   :group 'midimacs)
 
-(defface midimacs-x-jump-face-background
-  '((t (:foreground "gray40")))
-  "Face for background of midimacs x-jump"
+(defface midimacs-repeat-face
+  '((t (:foreground "gold")))
+  "Face for repeat markers"
   :group 'midimacs)
 
-(defface midimacs-x-jump-face-foreground
-  '((t (:foreground "red" :underline nil)))
-  "Face for foreground of midimacs x-jump"
+(defface midimacs-play-face
+  '((t (:foreground "yellow")))
+  "Face for play symbols"
   :group 'midimacs)
 
 (defstruct midimacs-event
@@ -135,9 +137,11 @@
   (setq midimacs-scheduled-note-offs (midimacs-make-scheduled-note-offs-heap))
   (setq midimacs-repeat-start (make-midimacs-time))
   (setq midimacs-repeat-end (make-midimacs-time :beat midimacs-length))
-  (setq midimacs-selection nil)
+  (setq midimacs-repeat-start-overlay nil)
+  (setq midimacs-repeat-end-overlay nil)
+  (setq midimacs-play-overlay nil)
 
-  (midimacs-code-close-all-buffers)
+  (midimacs-close-all-code-buffers)
   (midimacs-amidicat-proc-init)
   (midimacs-draw ""))
 
@@ -248,51 +252,63 @@
                          "amidicat" "--hex" "--port" "129:0" "--noread"))
     (set-process-filter midimacs-amidicat-proc 'midimacs-amidicat-read)))
 
-(defun midimacs-draw (contents)
+(defun midimacs-draw (&optional contents)
   (with-current-buffer (midimacs-buffer-seq)
     (let ((inhibit-read-only t))
       (erase-buffer)
       (midimacs-draw-top-bar)
-      (insert "\n")
-      (insert contents)
+      (when contents
+        (insert contents))
       (goto-char (point-min)))))
 
-(defun midimacs-redraw-top-bar ()
+(defun midimacs-draw-top-bar ()
   (with-current-buffer (midimacs-buffer-seq)
     (let ((inhibit-read-only t)
           (p (point)))
       (goto-char (point-min))
-      (delete-region (point) (line-end-position))
-      (midimacs-draw-top-bar)
-      (goto-char p))))
+      (midimacs-draw-top-bar-numbers)
+      (midimacs-draw-top-bar-background-overlay)
+      (midimacs-redraw-repeat-start)
+      (midimacs-redraw-repeat-end)
+      (midimacs-redraw-play)
+      (end-of-line)
+      (insert "\n"))))
 
-(defun midimacs-draw-top-bar ()
-  (let* ((pad ?.)
-         (repeat-start-col (+ (midimacs-time-beat midimacs-repeat-start) (1- midimacs-left-bar-length)))
-         (repeat-end-col (+ (midimacs-time-beat midimacs-repeat-end) midimacs-left-bar-length))
-         (position-col (+ (midimacs-time-beat midimacs-song-time) midimacs-left-bar-length))
+(defun midimacs-redraw-repeat-start ()
+  (unless (and midimacs-repeat-start-overlay (overlay-buffer midimacs-repeat-start-overlay))
+    (setq midimacs-repeat-start-overlay (make-overlay 0 1))
+    (overlay-put midimacs-repeat-start-overlay 'display "[")
+    (overlay-put midimacs-repeat-start-overlay 'face 'midimacs-repeat-face))
+  (let ((pos (+ (midimacs-time-beat midimacs-repeat-start) midimacs-left-bar-length)))
+    (move-overlay midimacs-repeat-start-overlay pos (1+ pos))))
 
-         (chars (list (cons repeat-start-col "[")
-                      (cons repeat-end-col "]")
-                      (cons position-col (midimacs-play-symbol))))
+(defun midimacs-redraw-repeat-end ()
+  (unless (and midimacs-repeat-end-overlay (overlay-buffer midimacs-repeat-end-overlay))
+    (setq midimacs-repeat-end-overlay (make-overlay 0 1))
+    (overlay-put midimacs-repeat-end-overlay 'display "]")
+    (overlay-put midimacs-repeat-end-overlay 'face 'midimacs-repeat-face))
+  (let ((pos (+ 1 (midimacs-time-beat midimacs-repeat-end) midimacs-left-bar-length)))
+    (move-overlay midimacs-repeat-end-overlay pos (1+ pos))))
 
-         (sorted-chars (sort chars (lambda (a b)
-                                     (< (car a) (car b))))))
+(defun midimacs-redraw-play ()
+  (unless (and midimacs-play-overlay (overlay-buffer midimacs-play-overlay))
+    (setq midimacs-play-overlay (make-overlay 0 1))
+    (overlay-put midimacs-play-overlay 'face 'midimacs-play-face))
+  (overlay-put midimacs-play-overlay 'display (midimacs-play-symbol))
+  (let ((pos (+ 1 (midimacs-time-beat midimacs-song-time) midimacs-left-bar-length)))
+    (move-overlay midimacs-play-overlay pos (1+ pos))))
 
-    (insert (make-string midimacs-left-bar-length (string-to-char " ")))
+(defun midimacs-draw-top-bar-numbers ()
+  (goto-char (point-min))
+  (delete-region (point) (line-end-position))
+  (insert (make-string midimacs-left-bar-length ? ))
+  (loop for i from 0 below midimacs-length by 4
+        do (insert (format "%-4d" i))))
 
-    (loop for (col . s) in sorted-chars do
-          (let ((spaces (- col (1- (point)))))
-            (if (= spaces -1)
-                (progn
-                  (delete-backward-char 1)
-                  (when (> (point) midimacs-left-bar-length)
-                    (setq s "#")))
-              (insert (make-string spaces pad)))
-            (insert s)))
-
-    (insert (make-string (max 0 (+ (- midimacs-length (point)) midimacs-left-bar-length)) pad)))
-  (put-text-property (point-min) (point) 'read-only t))
+(defun midimacs-draw-top-bar-background-overlay ()
+  (goto-char (point-min))
+  (let ((overlay (make-overlay (point) (line-end-position))))
+    (overlay-put overlay 'face 'midimacs-top-bar-background-face)))
 
 (defun midimacs-play-symbol ()
   (cond ((eq midimacs-state 'playing) "▶")
@@ -323,14 +339,14 @@
     (let ((new-repeat-start (make-midimacs-time :beat (midimacs-current-beat))))
       (midimacs-check-acceptable-repeat new-repeat-start midimacs-repeat-end)
       (setq midimacs-repeat-start new-repeat-start)))
-  (midimacs-redraw-top-bar))
+  (midimacs-redraw-repeat-start))
 
 (defun midimacs-set-repeat-end ()
   (interactive)
   (let ((new-repeat-end (make-midimacs-time :beat (midimacs-current-beat))))
     (midimacs-check-acceptable-repeat midimacs-repeat-start new-repeat-end)
     (setq midimacs-repeat-end new-repeat-end))
-  (midimacs-redraw-top-bar))
+  (midimacs-redraw-repeat-end))
 
 (defun midimacs-check-acceptable-repeat (start end)
   (let ((beats (- (midimacs-time-beat start) (midimacs-time-beat end))))
@@ -405,6 +421,9 @@
 
 (defun midimacs-set-buffer-code (code)
   (set-buffer (midimacs-buffer-code-name (midimacs-code-name code))))
+
+(defun midimacs-buffer-is-code (buffer)
+  (string-match "^\\*midimacs-code-.\\*$" (buffer-name buffer)))
 
 (defun midimacs-buffer-seq-name ()
   "*midimacs-seq*")
@@ -526,7 +545,7 @@
   (let ((beat (midimacs-current-beat)))
     (midimacs-check-beat beat)
     (setq midimacs-song-time (make-midimacs-time :beat beat)))
-  (midimacs-redraw-top-bar))
+  (midimacs-redraw-play))
 
 (defun midimacs-play-here ()
   (interactive)
@@ -538,17 +557,19 @@
   (setq midimacs-state 'playing)
   (setq midimacs-start-time-seconds (float-time))
   (setq midimacs-abs-time (make-midimacs-time))
+  (midimacs-redraw-play)
   (midimacs-tick))
 
 (defun midimacs-tick ()
   (when (eq midimacs-state 'playing)
+
     (midimacs-trigger-note-offs)
     (midimacs-trigger-events)
     (midimacs-incr-position)
 
     ;; only update when we have to
     (when (= (midimacs-time-tick midimacs-song-time) 0)
-      (midimacs-redraw-top-bar))
+      (midimacs-redraw-play))
 
     (run-at-time (midimacs-wait-time) nil 'midimacs-tick)))
 
@@ -609,15 +630,16 @@
 (defun midimacs-stop ()
   (midimacs-midi-flush-note-offs)
   (setq midimacs-state 'stopped)
-  (midimacs-redraw-top-bar))
+  (midimacs-redraw-play))
 
 (defun midimacs-code-get-open-buffers ()
   (remove nil (loop for name being the hash-keys of midimacs-codes
                     collect (midimacs-buffer-code name))))
 
-(defun midimacs-code-close-all-buffers ()
-  ; TODO
-  )
+(defun midimacs-close-all-code-buffers ()
+  (loop for buffer in (buffer-list)
+        when (midimacs-buffer-is-code buffer)
+        do (kill-buffer buffer)))
 
 (defun midimacs-code-update-open-buffers ()
   (dolist (buffer (midimacs-code-get-open-buffers))
@@ -757,19 +779,21 @@
                      num denom midimacs-ticks-per-beat tick)))
     (truncate tick)))
 
-(defun midimacs-parse-pitch (s)
-  (if (string-match "^\\([a-gA-G]\\)\\([sb]\\)?\\(-?[0-9]\\)$" s)
-      (let* ((base (downcase (match-string 1 s)))
-             (accidental (match-string 2 s))
-             (octave (string-to-number (match-string 3 s)))
-             (pitch (+ (* 12 (+ octave 1))
-                       (+ (cdr (assoc base midimacs-pitch-numbers))
-                          (cdr (assoc accidental midimacs-accidental-numbers))))))
-        (unless (and (>= pitch 0)
-                     (<= pitch 127))
-          (error (format "Pitch \"%s\" (%d) is out of range 0 <= x <= 127" s pitch)))
-        pitch)
-    (error (format "Couldn't parse pitch \"%s\"" s))))
+(defun midimacs-parse-pitch (ss)
+  (let ((s (cond ((symbolp ss) (symbol-name ss))
+                 (t ss))))
+    (if (string-match "^\\([a-gA-G]\\)\\([sb]\\)?\\(-?[0-9]\\)$" s)
+        (let* ((base (downcase (match-string 1 s)))
+               (accidental (match-string 2 s))
+               (octave (string-to-number (match-string 3 s)))
+               (pitch (+ (* 12 (+ octave 1))
+                         (+ (cdr (assoc base midimacs-pitch-numbers))
+                            (cdr (assoc accidental midimacs-accidental-numbers))))))
+          (unless (and (>= pitch 0)
+                       (<= pitch 127))
+            (error (format "Pitch \"%s\" (%d) is out of range 0 <= x <= 127" s pitch)))
+          pitch)
+      (error (format "Couldn't parse pitch \"%s\"" s)))))
 
 (defun midimacs-sym-or-num-to-string (x)
   (cond ((stringp x) x)
@@ -841,52 +865,6 @@
     (if (= res 7) ;; C-g
         nil
       res)))
-
-(defun midimacs-x-jump ()
-  (interactive)
-  (let* ((background-overlay (midimacs-x-jump-background-overlay))
-         (overlay-map (midimacs-x-jump-make-overlay-map))
-         (jump-char (midimacs-read-char-no-quit "Jump to character: ")))
-    (when jump-char
-      (let* ((c-p-overlay (assoc jump-char overlay-map))
-             (jump-point (car (cdr c-p-overlay))))
-        (if jump-point
-            (goto-char jump-point)
-          (message "Invalid jump point"))))
-
-    (delete-overlay background-overlay)
-
-    (loop for (c . (p . overlay)) in overlay-map
-          do (delete-overlay overlay))))
-
-(defun midimacs-x-jump-background-overlay ()
-  (let ((overlay (make-overlay (window-start) (window-end))))
-    (overlay-put overlay 'face 'midimacs-x-jump-face-background)
-    overlay))
-
-(defun midimacs-x-jump-make-overlay-map ()
-  (let* ((all-line-positions (midimacs-visible-line-positions))
-         (col-positions (midimacs-visible-col-positions))
-
-         (chars (nconc (loop for c from ?a to ?z collect c)
-                       (loop for c from ?0 to ?9 collect c)
-                       (loop for c from ?A to ?Z collect c)
-                       (string-to-list "~`!@#$%^&*()_-+={[}]|\\:;\"'<,>.?/")))
-
-         (line-positions (loop for p in all-line-positions
-                               when (= (% p 3) (% (point) 3))
-                               collect p))
-
-         (positions (append col-positions line-positions)))
-
-    (loop for (p c) in (mapcar* 'list positions chars)
-          collect (cons c (cons p (midimacs-x-jump-make-overlay p (string c)))))))
-
-(defun midimacs-x-jump-make-overlay (p c)
-  (let ((ol (make-overlay p (1+ p))))
-    (overlay-put ol 'face 'midimacs-x-jump-face-foreground)
-    (overlay-put ol 'display c)
-    ol))
 
 (defun midimacs-set-tempo (bpm)
   (interactive "nBeats per minute: ")
