@@ -269,6 +269,7 @@
       (goto-char (point-min))
       (midimacs-draw-top-bar-numbers)
       (midimacs-draw-top-bar-background-overlay)
+      (midimacs-make-top-bar-read-only)
       (midimacs-redraw-repeat-start)
       (midimacs-redraw-repeat-end)
       (midimacs-redraw-play)
@@ -310,6 +311,10 @@
   (goto-char (point-min))
   (let ((overlay (make-overlay (point) (line-end-position))))
     (overlay-put overlay 'face 'midimacs-top-bar-background-face)))
+
+(defun midimacs-make-top-bar-read-only ()
+  (goto-char (point-min))
+  (put-text-property (point) (line-end-position) 'read-only t))
 
 (defun midimacs-play-symbol ()
   (cond ((eq midimacs-state 'playing) "▶")
