@@ -56,15 +56,15 @@
 
 (defconst midimacs-ticks-per-beat 24)
 (defconst midimacs-pitch-numbers '(("c" . 0)
-                              ("d" . 2)
-                              ("e" . 4)
-                              ("f" . 5)
-                              ("g" . 7)
-                              ("a" . 9)
-                              ("b" . 11)))
+                                   ("d" . 2)
+                                   ("e" . 4)
+                                   ("f" . 5)
+                                   ("g" . 7)
+                                   ("a" . 9)
+                                   ("b" . 11)))
 (defconst midimacs-accidental-numbers '((nil . 0)
-                                   ("b" . -1)
-                                   ("s" . +1)))
+                                        ("b" . -1)
+                                        ("s" . +1)))
 (defconst midimacs-left-bar-length 4)
 (defconst midimacs-top-bar-height 1)
 (defconst midimacs-track-char ?>)
@@ -216,8 +216,8 @@
                          nil)
                         ((= c midimacs-sustain-char)
                          (when current
-                             (make-midimacs-event :code-name current
-                                                  :start-time start-time)))
+                           (make-midimacs-event :code-name current
+                                                :start-time start-time)))
                         (t
                          (setq current c)
                          (setq start-time (make-midimacs-time :beat i))
@@ -243,9 +243,9 @@
         (process-name "midimacs-amidicat"))
     (when (get-buffer buffer-name)
       (when (get-process process-name)
-          (progn
-            (midimacs-midi-flush-note-offs)
-            (delete-process process-name)))
+        (progn
+          (midimacs-midi-flush-note-offs)
+          (delete-process process-name)))
       (kill-buffer buffer-name))
 
     (setq midimacs-amidicat-proc
@@ -476,8 +476,6 @@
   (message (concat "updated code " (string name))))
 
 (cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity 100) (off-velocity 0))
-                                        ; TODO: validation
-
   (setq pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
                     ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
                     (t pitch-raw)))
@@ -486,11 +484,11 @@
                        ((stringp duration-raw) (midimacs-parse-time duration-raw))
                        ((numberp duration-raw)
                         (make-midimacs-time :beat (floor (/ duration-raw midimacs-ticks-per-beat))
-                                       :tick (mod duration-raw midimacs-ticks-per-beat)))
+                                            :tick (mod duration-raw midimacs-ticks-per-beat)))
                        (t duration-raw)))
 
   (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration)
-                              (midimacs-midi-message-note-off channel pitch off-velocity))
+                                   (midimacs-midi-message-note-off channel pitch off-velocity))
   (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity)))
 
 (cl-defun midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity 100) (off-velocity 0))
@@ -499,17 +497,17 @@
 
 (defun midimacs-midi-message-note-on (channel pitch velocity)
   (make-midimacs-midi-message :status (+ #x90 channel)
-                         :data1 pitch
-                         :data2 velocity))
+                              :data1 pitch
+                              :data2 velocity))
 
 (defun midimacs-midi-message-note-off (channel pitch velocity)
   (make-midimacs-midi-message :status (+ #x80 channel)
-                         :data1 pitch
-                         :data2 velocity))
+                              :data1 pitch
+                              :data2 velocity))
 
 (defun midimacs-midi-message-program-change (channel program)
   (make-midimacs-midi-message :status (+ #xC0 channel)
-                         :data1 program))
+                              :data1 program))
 
 (defun midimacs-program-change (channel program)
   (midimacs-midi-execute (midimacs-midi-message-program-change channel program)))
