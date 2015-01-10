@@ -25,7 +25,8 @@
   (local-set-key (kbd "C-x C-s") 'midimacs-save)
   (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
-;;  (local-set-key (kbd "C-c SPC") 'midimacs-x-jump)
+  (local-set-key (kbd "C-x T") 'midimacs-tap-tempo-and-play)
+  (local-set-key (kbd "C-x t") 'midimacs-tap-tempo)
   (setq-local after-change-functions '(midimacs-seq-after-change))
   (setq-local transient-mark-mode nil)
   (setq-local font-lock-defaults `(((,(midimacs-bad-track-regex) . font-lock-warning-face))))
@@ -874,6 +875,32 @@
     (when (eq state 'playing)
       (midimacs-play))))
 
+(defun midimacs-tap-tempo ()
+  (interactive)
+  (let ((tempo (midimacs-read-tempo-taps)))
+    (setq midimacs-bpm tempo)
+    (message (format "Setting tempo to %.2f" tempo))))
+
+(defun midimacs-tap-tempo-and-play ()
+  (interactive)
+  (midimacs-tap-tempo)
+  (when (eq midimacs-state 'stopped)
+    (midimacs-play)))
+
+(defun midimacs-read-tempo-taps ()
+  (loop for prev-time = (float-time)
+        for char = (read-char (if tempo
+                                  (format "Current tempo: %.2f" tempo)
+                                "Tap any key other than SPACE to start tapping, or SPACE to exit"))
+        for tempo = (midimacs-calc-tap-tempo times)
+        until (= char ? )
+        collect (- (float-time) prev-time) into times
+        finally (return tempo)))
+
+(defun midimacs-calc-tap-tempo (times)
+  (let ((good-times (cdr times)))
+    (when good-times
+      (/ 60 (/ (apply '+ good-times) (length good-times))))))
 
 (defun midimacs-bad-track-regex ()
   (let* ((not-a-two-char-number
