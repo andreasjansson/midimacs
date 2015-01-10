@@ -831,43 +831,6 @@
                         ((and ,off-time ,off-func (midimacs-time= rel-time ,off-time))
                          (setq state ((lambda (state) ,off-func) state)))))))
 
-(defun midimacs-visible-line-positions ()
-  (save-excursion
-    (let ((p (point))
-          (col) (start) (end))
-      (when (= (1- (line-number-at-pos))
-               (count-lines (point-min) (point-max)))
-        (setq col (current-column))
-        (forward-line -1)
-        (move-to-column col))
-
-      (move-to-column (window-hscroll))
-      (setq start (point))
-      (setq col (current-column))
-      (move-to-column (+ col (window-width)))
-      (setq end (point))
-      (loop for p from start to end
-            collect p))))
-
-(defun midimacs-visible-col-positions ()
-  (save-excursion
-    (let ((col (current-column))
-          (lines (count-lines (point-min) (window-end))))
-      (goto-char (window-start))
-      (move-to-column col)
-      (cons (point)
-            (loop while (< (line-number-at-pos) lines)
-                  do (forward-line)
-                  do (move-to-column col)
-                  collect col)))))
-
-(defun midimacs-read-char-no-quit (q)
-  (let* ((inhibit-quit t)
-         (res (read-char q)))
-    (if (= res 7) ;; C-g
-        nil
-      res)))
-
 (defun midimacs-set-tempo (bpm)
   (interactive "nBeats per minute: ")
   (let ((state midimacs-state))
