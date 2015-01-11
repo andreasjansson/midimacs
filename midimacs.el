@@ -13,6 +13,7 @@
 
 (define-derived-mode midimacs-seq-mode fundamental-mode "midimacs-seq-mode"
   (midimacs-extend-picture-mode)
+  (setq buffer-read-only nil)
   (local-set-key (kbd "C-x C-[") 'midimacs-set-repeat-start)
   (local-set-key (kbd "C-x C-]") 'midimacs-set-repeat-end)
   (local-set-key (kbd "RET") 'midimacs-seq-enter)
@@ -20,6 +21,7 @@
   (local-set-key (kbd "M-SPC") 'midimacs-toggle-play)
   (local-set-key (kbd "C-M-SPC") 'midimacs-play-here)
   (local-set-key (kbd "C-<return>") 'midimacs-position-here)
+  (local-set-key (kbd "C-x C-r") 'midimacs-record-keyboard)
   (local-set-key (kbd "C-x C-s") 'midimacs-save)
   (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
@@ -29,6 +31,15 @@
   (setq-local transient-mark-mode nil)
   (setq-local font-lock-defaults `(((,(midimacs-bad-track-regex) . font-lock-warning-face))))
   (setq truncate-lines t))
+
+(define-derived-mode midimacs-seq-record-keyboard-mode midimacs-seq-mode "midimacs-seq-record-keyboard-mode"
+  (setq buffer-read-only t)
+  (let ((keyboard-notes (midimacs-keyboard-notes)))
+    (loop for (char . note) in keyboard-notes
+          do (local-set-key (kbd (string char)) (lexical-let ((pitch (midimacs-parse-pitch note)))
+                                                  (lambda ()
+                                                    (interactive)
+                                                    (midimacs-record-key pitch)))))))
 
 (define-derived-mode midimacs-code-mode emacs-lisp-mode "midimacs-code-mode"
   (define-key midimacs-code-mode-map (kbd "M-SPC") 'midimacs-toggle-play)
@@ -63,11 +74,26 @@
 (defconst midimacs-accidental-numbers '((nil . 0)
                                         ("b" . -1)
                                         ("s" . +1)))
+
+(defconst midimacs-pitch-names '((0 . C)
+                                 (1 . Cs)
+                                 (2 . D)
+                                 (3 . Ds)
+                                 (4 . E)
+                                 (5 . F)
+                                 (6 . Fs)
+                                 (7 . G)
+                                 (8 . Gs)
+                                 (9 . A)
+                                 (10 . As)
+                                 (11 . b)))
+
 (defconst midimacs-left-bar-length 4)
 (defconst midimacs-top-bar-height 1)
 (defconst midimacs-track-char ?>)
 (defconst midimacs-sustain-char ?.)
 (defconst midimacs-space-char ? )
+(defconst midimacs-default-recording-duration (midimacs-parse-time '1/2))
 
 (defvar midimacs-tracks '())
 (defvar midimacs-codes nil)
@@ -78,12 +104,15 @@
 (defvar midimacs-song-time nil)
 (defvar midimacs-state 'stopped)
 (defvar midimacs-start-time-seconds nil)
+(defvar midimacs-last-tick-seconds nil) ; used for recording
 (defvar midimacs-filename nil)
 (defvar midimacs-amidicat-proc nil)
 (defvar midimacs-scheduled-note-offs nil)
 (defvar midimacs-repeat-start-overlay nil)
 (defvar midimacs-repeat-end-overlay nil)
 (defvar midimacs-play-overlay nil)
+(defvar midimacs-midi-history nil)
+(defvar midimacs-recording-score nil)
 
 (defface midimacs-top-bar-background-face
   '((t (:foreground "dim gray")))
@@ -125,6 +154,12 @@
   (beat 0)
   (tick 0))
 
+(defstruct midimacs-score
+  notes
+  buffer
+  channel
+  start-time)
+
 (defun midimacs-init ()
   (setq midimacs-tracks '())
   (setq midimacs-codes (make-hash-table :test 'equal))
@@ -139,6 +174,7 @@
   (setq midimacs-repeat-start-overlay nil)
   (setq midimacs-repeat-end-overlay nil)
   (setq midimacs-play-overlay nil)
+  (setq midimacs-recording-score nil)
 
   (midimacs-close-all-code-buffers)
   (midimacs-amidicat-proc-init)
@@ -315,8 +351,9 @@
   (put-text-property (point) (line-end-position) 'read-only t))
 
 (defun midimacs-play-symbol ()
-  (cond ((eq midimacs-state 'playing) "▶")
-        ((eq midimacs-state 'stopped) "◾")))
+  (cond ((eq midimacs-state 'playing)   "▶")
+        ((eq midimacs-state 'recording) "●")
+        ((eq midimacs-state 'stopped)   "◾")))
 
 (defun midimacs-current-track ()
   (with-current-buffer (midimacs-buffer-seq)
@@ -330,9 +367,7 @@
 
 (defun midimacs-seq-enter ()
   (interactive)
-  (let* ((track (midimacs-current-track))
-         (beat (midimacs-current-beat))
-         (code (when (and track beat) (midimacs-track-code-at-beat track beat))))
+  (let ((code (midimacs-code-at-point)))
     (when code
       (midimacs-code-open-window code))))
 
@@ -356,6 +391,18 @@
   (let ((beats (- (midimacs-time-beat start) (midimacs-time-beat end))))
     (when (= beats 0)
       (user-error "repeat start and repeat end must be different"))))
+
+(defun midimacs-code-at-point ()
+  (let* ((track (midimacs-current-track))
+         (beat (midimacs-current-beat))
+         (code (when (and track beat) (midimacs-track-code-at-beat track beat))))
+    code))
+
+(defun midimacs-event-at-point ()
+  (let* ((track (midimacs-current-track))
+         (beat (midimacs-current-beat))
+         (code (when (and track beat) (midimacs-track-event-at-beat track beat))))
+    code))
 
 (defun midimacs-track-event-at-beat (track beat)
   (elt (midimacs-track-events track) beat))
@@ -447,7 +494,8 @@
 
 (defun midimacs-code-template (code-name)
   (concat
-   "(midimacs-code ?" (string code-name) "
+   "(midimacs-code
+ ?" (string code-name) "
 
  ;; init
  (lambda (channel song-time state)
@@ -540,6 +588,7 @@
 (defun midimacs-toggle-play ()
   (interactive)
   (cond ((eq midimacs-state 'playing) (midimacs-stop))
+        ((eq midimacs-state 'recording) (midimacs-stop-recording))
         ((eq midimacs-state 'stopped) (midimacs-play))))
 
 (defun midimacs-position-here ()
@@ -562,12 +611,36 @@
   (midimacs-redraw-play)
   (midimacs-tick))
 
+(defun midimacs-record-keyboard ()
+  (interactive)
+  (if (eq midimacs-state 'stopped)
+      (progn
+        (midimacs-seq-record-keyboard-mode)
+        (midimacs-record))
+    (user-error "Can only start recording from stopped")))
+
+(defun midimacs-record ()
+  (setq midimacs-recording-score (midimacs-get-recording-score)) ;; can fail and die here
+  (setq midimacs-state 'recording)
+  (setq midimacs-start-time-seconds (float-time))
+  (setq midimacs-abs-time (make-midimacs-time))
+  (midimacs-redraw-play)
+  (midimacs-tick))
+
 (defun midimacs-tick ()
-  (when (eq midimacs-state 'playing)
+  (when (memq midimacs-state '(playing recording))
 
     (midimacs-trigger-note-offs)
     (midimacs-trigger-events)
     (midimacs-incr-position)
+    (setq midimacs-last-tick-seconds (float-time))
+
+    (when (eq midimacs-state 'recording)
+      (midimacs-remove-note-from-score
+       midimacs-recording-score
+       (midimacs-time- midimacs-song-time
+                       (midimacs-score-start-time midimacs-recording-score)
+                       (make-midimacs-time :tick -1)))) ;; one ahead
 
     ;; only update when we have to
     (when (= (midimacs-time-tick midimacs-song-time) 0)
@@ -633,6 +706,15 @@
   (midimacs-midi-flush-note-offs)
   (setq midimacs-state 'stopped)
   (midimacs-redraw-play))
+
+(defun midimacs-stop-recording ()
+  (midimacs-stop)
+
+  (with-current-buffer (midimacs-buffer-seq)
+    (midimacs-seq-mode))
+  (with-current-buffer (midimacs-score-buffer midimacs-recording-score)
+    (setq midimacs-recording-score nil)
+    (midimacs-code-update)))
 
 (defun midimacs-code-get-open-buffers ()
   (remove nil (loop for name being the hash-keys of midimacs-codes
@@ -732,6 +814,9 @@
 (defun midimacs-time> (a b)
   (not (midimacs-time<= a b)))
 
+(defun midimacs-time>= (a b)
+  (not (midimacs-time< a b)))
+
 (defun midimacs-time+ (&rest times)
   (let ((ticks (loop for time in times
                      sum (midimacs-time-to-ticks time))))
@@ -802,6 +887,34 @@
         ((symbolp x) (symbol-name x))
         ((numberp x) (number-to-string x))))
 
+(defun midimacs-time-to-string (time)
+  (let* ((beat (midimacs-time-beat time))
+         (tick (midimacs-time-tick time))
+         (gcd (midimacs-gcd tick midimacs-ticks-per-beat))
+         (frac-num (/ tick gcd))
+         (frac-denom (/ midimacs-ticks-per-beat gcd)))
+    (format "%s%s%s"
+            (if (= beat 0)
+                ""
+              (format "%d" beat))
+            (if (or (= beat 0) (= frac-num 0))
+                ""
+              "+")
+            (if (= frac-num 0)
+                ""
+              (format "%d/%d" frac-num frac-denom)))))
+
+(defun midimacs-gcd (a b)
+    (cond
+     ((< a b) (gcd a (- b a)))
+     ((> a b) (gcd (- a b) b))
+     (t a)))
+
+(defun midimacs-pitch-to-string (pitch)
+  (let ((octave (- (floor (/ pitch 12)) 1))
+        (name (cdr (assoc (% pitch 12) midimacs-pitch-names))))
+    (format "%s%d" name octave)))
+
 (defmacro midimacs-score (notes &rest channel)
   "channel defaults to track channel"
   (let ((cum-time (make-midimacs-time)))
@@ -836,7 +949,7 @@
   (let ((state midimacs-state))
     (midimacs-stop)
     (setq midimacs-bpm bpm)
-    (when (eq state 'playing)
+    (when (eq state 'playing) ; TODO: recording
       (midimacs-play))))
 
 (defun midimacs-tap-tempo ()
@@ -934,6 +1047,148 @@
      bad-events
      "\\)"
      "$")))
+
+(defun midimacs-keyboard-notes ()
+  '((?z . C2)
+    (?s . Cs2)
+    (?x . D2)
+    (?d . Ds2)
+    (?c . E2)
+    (?v . F2)
+    (?g . Fs2)
+    (?b . G2)
+    (?h . Gs2)
+    (?n . A2)
+    (?j . As2)
+    (?m . B2)
+    (?, . C3)
+    (?l . Cs3)
+    (?. . D3)
+    (?\; . Ds3)
+    (?/ . E3)
+    (?q . C3)
+    (?2 . Cs3)
+    (?w . D3)
+    (?3 . Ds3)
+    (?e . E3)
+    (?r . F3)
+    (?5 . Fs3)
+    (?t . G3)
+    (?6 . Gs3)
+    (?y . A3)
+    (?7 . As3)
+    (?u . B3)
+    (?i . C4)
+    (?9 . Cs4)
+    (?o . D4)
+    (?0 . Ds4)
+    (?p . E4)
+    (?\[ . F4)
+    (?+ . Fs4)
+    (?\] . G4)))
+
+(defun midimacs-record-key (pitch)
+  (let* ((song-time (midimacs-quantized-song-time))
+         (duration midimacs-default-recording-duration)
+         (channel (midimacs-score-channel midimacs-recording-score))
+         (start-time (midimacs-score-start-time midimacs-recording-score))
+         (rel-time (midimacs-time- song-time start-time)))
+
+    (when (midimacs-time> rel-time (make-midimacs-time))
+      (midimacs-play-note channel pitch duration)
+      (midimacs-add-note-to-score midimacs-recording-score rel-time pitch duration))))
+
+(defun midimacs-quantized-song-time ()
+  (let ((seconds-per-tick (/ 60 (* midimacs-ticks-per-beat midimacs-bpm)))
+        (seconds-since-tick (- (float-time) midimacs-last-tick-seconds)))
+    (if (> seconds-since-tick (/ seconds-per-tick 2))
+        (midimacs-time+ midimacs-song-time (make-midimacs-time :tick 1))
+      midimacs-song-time)))
+
+(defun midimacs-add-note-to-score (score time pitch duration)
+  (midimacs-score-add-note score time pitch duration)
+  (midimacs-score-update-buffer score))
+
+(defun midimacs-remove-note-from-score (score time)
+  (midimacs-score-remove-note score time)
+  (midimacs-score-update-buffer score))
+
+(defun midimacs-score-update-buffer (score)
+  (with-current-buffer (midimacs-score-buffer score)
+    (let ((p (search-backward "(midimacs-score" nil t)))
+      (unless p
+        (user-error "No midimacs-score in this buffer"))
+      (beginning-of-line)
+      (setq p (point))
+      (forward-sexp)
+      (delete-region p (point))
+      (insert (midimacs-score-text score)))))
+
+(defun midimacs-score-add-note (score time pitch duration)
+  (let ((notes (midimacs-score-notes score)))
+    (setf (midimacs-score-notes score)
+          (loop for (tm p d) being the elements of notes using (index i) 
+                while (midimacs-time>= time tm)
+                finally (return (nconc (subseq notes 0 i)
+                                       (list (list time pitch duration))
+                                       (subseq notes i)))))))
+
+(defun midimacs-score-remove-note (score time)
+  (let ((notes (midimacs-score-notes score)))
+    (setf (midimacs-score-notes score)
+          (loop for (tm p d) being the elements of notes using (index i) 
+                while (not (midimacs-time= time tm))
+                finally (return (nconc (subseq notes 0 i)
+                                       (subseq notes (1+ i))))))))
+
+(defun midimacs-score-text (score)
+  (let ((notes (midimacs-score-notes score)))
+    (concat "   (midimacs-score\n"
+            "    ("
+            (apply 'concat (loop for (tm p d) being the elements of notes using (index i)
+                                 collect (concat (if (= i 0) "(" "\n     (")
+                                                 (format "%-9s %-3s %s"
+                                                         (midimacs-time-to-string tm)
+                                                         (midimacs-pitch-to-string p)
+                                                         (midimacs-time-to-string d))
+                                                 ")")))
+            "))")))
+
+
+(defun midimacs-get-recording-score ()
+  (let* ((code (midimacs-code-at-point))
+         (event (midimacs-event-at-point))
+         (track (midimacs-current-track))
+         (score)
+         (event-start-time (midimacs-event-start-time event))
+         (start-time (if event-start-time
+                         event-start-time
+                       (make-midimacs-time :beat (midimacs-current-beat)))))
+
+    (unless code
+      (user-error "No code here"))
+
+    (midimacs-code-open-window code)
+    (setq score (make-midimacs-score :buffer (current-buffer)
+                                     :channel (midimacs-track-channel track)
+                                     :start-time start-time))
+
+    (beginning-of-buffer)
+    (if (search-forward "(midimacs-score" nil t)
+        (progn
+          (forward-line)
+          (midimacs-score-update-buffer score))
+      (search-forward ";; run")
+      (search-forward "(lambda ")
+      (end-of-line)
+      (insert "\n")
+      (insert "\n")
+      (insert (midimacs-score-text score)))
+
+    (midimacs-code-update)
+
+    (other-window 1) ;; switch back to seq
+    score))
 
 (provide 'midimacs)
 ;;; midimacs.el ends here
