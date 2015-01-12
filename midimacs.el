@@ -262,10 +262,12 @@
                                               :do-init t))))))
 
 (defun midimacs-maybe-create-code (code-name)
-  (unless (midimacs-get-code code-name)
-    (let ((code (make-midimacs-code :name code-name
-                                    :text (midimacs-code-template code-name))))
-      (puthash code-name code midimacs-codes))))
+  (let ((code (midimacs-get-code code-name)))
+  (unless code
+    (setq code (make-midimacs-code :name code-name
+                                   :text (midimacs-code-template code-name)))
+    (puthash code-name code midimacs-codes))
+  code))  
 
 (defun midimacs-seq-buffer-contents ()
   (with-current-buffer (midimacs-buffer-seq)
@@ -1171,22 +1173,78 @@
                                      :channel (midimacs-track-channel track)
                                      :start-time start-time))
 
-    (beginning-of-buffer)
-    (if (search-forward "(midimacs-score" nil t)
-        (progn
-          (forward-line)
-          (midimacs-score-update-buffer score))
-      (search-forward ";; run")
-      (search-forward "(lambda ")
-      (end-of-line)
-      (insert "\n")
-      (insert "\n")
-      (insert (midimacs-score-text score)))
-
-    (midimacs-code-update)
+    (midimacs-code-insert-score code score)
 
     (other-window 1) ;; switch back to seq
     score))
+
+(defun midimacs-code-insert-score (code score)
+  (beginning-of-buffer)
+  (if (search-forward "(midimacs-score" nil t)
+      (progn
+        (forward-line)
+        (midimacs-score-update-buffer score))
+    (search-forward ";; run")
+    (search-forward "(lambda ")
+    (end-of-line)
+    (insert "\n")
+    (insert "\n")
+    (insert (midimacs-score-text score)))
+
+  (midimacs-code-update))
+
+(defun midimacs-split-score (code-name)
+  (interactive "cCode name: ")
+  (let* ((track (midimacs-track-at-point))
+         (beat (midimacs-beat-at-point))
+         (event (midimacs-track-event-at-beat track beat)))
+    
+    (unless event
+      (user-error "No event here"))
+
+    (let* ((code (midimacs-event-code event))
+           (score (midimacs-code-extract-score code))
+           (offset (midimacs-time- (make-midimacs-time :beat beat)
+                                   (midimacs-event-start-time event)))
+           (new-code))
+      
+      (unless score
+        (user-error "No score"))
+
+      (setq new-code (midimacs-maybe-create-code code-name))
+
+      (save-excursion
+        (delete-char 1)
+        (insert (string code-name)))
+
+      (destructuring-bind (prev-score new-score)
+          (midimacs-score-split score offset)
+        (midimacs-code-replace-score code prev-score)
+
+        (midimacs-code-open-window code)
+        (erase-buffer)
+        (insert (midimacs-code-text code))
+        (midimacs-code-update)
+        (other-window 1)
+
+        (midimacs-code-open-window new-code)
+        (setf (midimacs-score-buffer new-score) (current-buffer))
+        (midimacs-code-insert-score new-code new-score)
+        (midimacs-code-replace-score code prev-score)
+        (midimacs-code-update)
+        (other-window 1)))))
+
+(defun midimacs-score-split (score offset)
+  (let* ((notes (midimacs-score-notes score))
+         (notes-a (loop for (time pitch duration) in notes
+                        if (midimacs-time< time offset)
+                        collect (list time pitch duration)))
+         (notes-b (loop for (time pitch duration) in notes
+                        if (midimacs-time>= time offset)
+                        collect (list (midimacs-time- time offset) pitch duration)))
+         (score-a (make-midimacs-score :notes notes-a))
+         (score-b (make-midimacs-score :notes notes-b)))
+    (list score-a score-b)))
 
 (defun midimacs-merge-scores ()
   (interactive)
@@ -1216,6 +1274,7 @@
       (midimacs-code-open-window prev-code)
       (erase-buffer)
       (insert (midimacs-code-text prev-code))
+      (midimacs-code-update)
       (other-window 1))))
 
 (defun midimacs-code-replace-score (code score)
