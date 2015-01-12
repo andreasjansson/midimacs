@@ -49,6 +49,8 @@
   (define-key midimacs-code-mode-map (kbd "C-x C-s") 'midimacs-save)
   (define-key midimacs-code-mode-map (kbd "C-x C-w") 'midimacs-save-as)
   (define-key midimacs-code-mode-map (kbd "C-x C-f") 'midimacs-open)
+  (define-key midimacs-code-mode-map (kbd "C-x h") 'midimacs-code-score-hide-times)
+  (define-key midimacs-code-mode-map (kbd "C-x s") 'midimacs-code-score-show-times)
   (define-key midimacs-code-mode-map (kbd "C-c C-c") 'midimacs-code-update))
 
 ;;;###autoload
@@ -886,7 +888,10 @@
                        (<= pitch 127))
             (error (format "Pitch \"%s\" (%d) is out of range 0 <= x <= 127" s pitch)))
           pitch)
-      (error (format "Couldn't parse pitch \"%s\"" s)))))
+
+      (if (equal s "-")
+          nil
+        (error (format "Couldn't parse pitch \"%s\"" s))))))
 
 (defun midimacs-sym-or-num-to-string (x)
   (cond ((stringp x) x)
@@ -917,9 +922,11 @@
      (t a)))
 
 (defun midimacs-pitch-to-string (pitch)
-  (let ((octave (- (floor (/ pitch 12)) 1))
-        (name (cdr (assoc (% pitch 12) midimacs-pitch-names))))
-    (format "%s%d" name octave)))
+  (if pitch
+      (let ((octave (- (floor (/ pitch 12)) 1))
+            (name (cdr (assoc (% pitch 12) midimacs-pitch-names))))
+        (format "%s%d" name octave))
+    "-"))
 
 (defmacro midimacs-score (notes &rest channel)
   "channel defaults to track channel"
@@ -1147,18 +1154,47 @@
                 finally (return (nconc (subseq notes 0 i)
                                        (subseq notes (1+ i))))))))
 
-(defun midimacs-score-text (score)
-  (let ((notes (midimacs-score-notes score)))
+(cl-defun midimacs-score-text (score &key (hide-times nil))
+  (let ((notes (if hide-times
+                   (midimacs-score-notes-with-pauses score)
+                 (midimacs-score-notes-without-pauses score))))
     (concat "   (midimacs-score\n"
             "    ("
             (apply 'concat (loop for (tm p d) being the elements of notes using (index i)
                                  collect (concat (if (= i 0) "(" "\n     (")
-                                                 (format "%-9s %-3s %s"
-                                                         (midimacs-time-to-string tm)
-                                                         (midimacs-pitch-to-string p)
-                                                         (midimacs-time-to-string d))
+                                                 (if hide-times
+                                                     (format "%-3s %s"
+                                                             (midimacs-pitch-to-string p)
+                                                             (midimacs-time-to-string d))
+                                                   (format "%-9s %-3s %s"
+                                                           (midimacs-time-to-string tm)
+                                                           (midimacs-pitch-to-string p)
+                                                           (midimacs-time-to-string d)))
                                                  ")")))
             "))")))
+
+(defun midimacs-score-notes-without-pauses (score)
+  (loop for (time pitch duration) in (midimacs-score-notes score)
+        if pitch
+        collect (list time pitch duration)))
+
+(defun midimacs-score-notes-with-pauses (score)
+  (let* ((notes (midimacs-score-sorted-notes score)))
+    (loop for (time pitch duration) in notes
+          with cum-time = (make-midimacs-time)
+          append (let ((notes (midimacs-note-with-pause time pitch duration cum-time)))
+                   (setq cum-time (midimacs-time+ time duration))
+                   notes))))
+
+(defun midimacs-note-with-pause (time pitch duration cum-time)
+  (cond ((midimacs-time< time cum-time) (user-error "Score is polyphonic"))
+        ((midimacs-time= time cum-time) (list (list time pitch duration)))
+        ((midimacs-time> time cum-time) (list (list cum-time nil (midimacs-time- time cum-time))
+                                              (list time pitch duration)))))
+
+(defun midimacs-score-sorted-notes (score)
+  (let ((notes (midimacs-score-notes score)))
+    (cl-sort notes 'midimacs-time< :key (lambda (x) (elt x 0)))))
 
 (defun midimacs-get-recording-score ()
   (let* ((code (midimacs-code-at-point))
@@ -1371,6 +1407,30 @@
     (list (match-string 1 text)
           (match-string 2 text)
           (match-string 3 text))))
+
+(defun midimacs-code-score-hide-times ()
+  (interactive)
+  (let ((text (buffer-string))
+        (p (point)))
+    (destructuring-bind (before score-text after)
+        (midimacs-score-split-text text)
+      (erase-buffer)
+      (insert before)
+      (insert (midimacs-score-text (midimacs-parse-score score-text) :hide-times t))
+      (insert after)
+      (goto-char p))))
+
+(defun midimacs-code-score-show-times ()
+  (interactive)
+  (let ((text (buffer-string))
+        (p (point)))
+    (destructuring-bind (before score-text after)
+        (midimacs-score-split-text text)
+      (erase-buffer)
+      (insert before)
+      (insert (midimacs-score-text (midimacs-parse-score score-text)))
+      (insert after)
+      (goto-char p))))
 
 
 (provide 'midimacs)
