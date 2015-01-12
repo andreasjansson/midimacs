@@ -1,6 +1,7 @@
 ;; TODO:
 ;;
-;; midi event history per channel!
+;; midimacs-quantize-region
+;; midi event history per channel
 
 ;; BUGS:
 ;; cannot save when code doesn't parse
@@ -131,7 +132,8 @@
 
 (defstruct midimacs-event
   code-name
-  start-time)
+  start-time
+  do-init)
 
 (defstruct midimacs-code
   name
@@ -255,7 +257,9 @@
                         (t
                          (setq current c)
                          (setq start-time (make-midimacs-time :beat i))
-                         (make-midimacs-event :code-name c))))))
+                         (make-midimacs-event :code-name c
+                                              :start-time start-time
+                                              :do-init t))))))
 
 (defun midimacs-maybe-create-code (code-name)
   (unless (midimacs-get-code code-name)
@@ -355,13 +359,13 @@
         ((eq midimacs-state 'recording) "●")
         ((eq midimacs-state 'stopped)   "◾")))
 
-(defun midimacs-current-track ()
+(defun midimacs-track-at-point ()
   (with-current-buffer (midimacs-buffer-seq)
     (save-excursion
       (beginning-of-line)
       (midimacs-parse-track (buffer-substring (point) (line-end-position))))))
 
-(defun midimacs-current-beat ()
+(defun midimacs-beat-at-point ()
   (with-current-buffer (midimacs-buffer-seq)
     (midimacs-beat-at-column (current-column))))
 
@@ -375,14 +379,14 @@
   (interactive)
   (save-excursion
     (forward-char)
-    (let ((new-repeat-start (make-midimacs-time :beat (midimacs-current-beat))))
+    (let ((new-repeat-start (make-midimacs-time :beat (midimacs-beat-at-point))))
       (midimacs-check-acceptable-repeat new-repeat-start midimacs-repeat-end)
       (setq midimacs-repeat-start new-repeat-start)))
   (midimacs-redraw-repeat-start))
 
 (defun midimacs-set-repeat-end ()
   (interactive)
-  (let ((new-repeat-end (make-midimacs-time :beat (midimacs-current-beat))))
+  (let ((new-repeat-end (make-midimacs-time :beat (midimacs-beat-at-point))))
     (midimacs-check-acceptable-repeat midimacs-repeat-start new-repeat-end)
     (setq midimacs-repeat-end new-repeat-end))
   (midimacs-redraw-repeat-end))
@@ -393,14 +397,14 @@
       (user-error "repeat start and repeat end must be different"))))
 
 (defun midimacs-code-at-point ()
-  (let* ((track (midimacs-current-track))
-         (beat (midimacs-current-beat))
+  (let* ((track (midimacs-track-at-point))
+         (beat (midimacs-beat-at-point))
          (code (when (and track beat) (midimacs-track-code-at-beat track beat))))
     code))
 
 (defun midimacs-event-at-point ()
-  (let* ((track (midimacs-current-track))
-         (beat (midimacs-current-beat))
+  (let* ((track (midimacs-track-at-point))
+         (beat (midimacs-beat-at-point))
          (code (when (and track beat) (midimacs-track-event-at-beat track beat))))
     code))
 
@@ -426,9 +430,7 @@
 
 (defun midimacs-event-rel-time (event time)
   (let ((event-time (midimacs-event-start-time event)))
-    (if event-time
-        (midimacs-time- time event-time)
-      (make-midimacs-time :tick (midimacs-time-tick time)))))
+    (midimacs-time- time event-time)))
 
 (defun midimacs-check-beat (beat)
   (unless (and beat (>= beat 0))
@@ -593,7 +595,7 @@
 
 (defun midimacs-position-here ()
   (interactive)
-  (let ((beat (midimacs-current-beat)))
+  (let ((beat (midimacs-beat-at-point)))
     (midimacs-check-beat beat)
     (setq midimacs-song-time (make-midimacs-time :beat beat)))
   (midimacs-redraw-play))
@@ -675,7 +677,7 @@
                   (channel (midimacs-track-channel track)))
 
              (when (and init
-                        (not (midimacs-event-start-time event))
+                        (midimacs-event-start-do-init event)
                         (eq (midimacs-time-tick midimacs-song-time) 0))
 
                (setf (midimacs-track-state track)
@@ -894,7 +896,7 @@
          (frac-num (/ tick gcd))
          (frac-denom (/ midimacs-ticks-per-beat gcd)))
     (format "%s%s%s"
-            (if (= beat 0)
+            (if (and (= beat 0) (not (= frac-num 0)))
                 ""
               (format "%d" beat))
             (if (or (= beat 0) (= frac-num 0))
@@ -1154,16 +1156,12 @@
                                                  ")")))
             "))")))
 
-
 (defun midimacs-get-recording-score ()
   (let* ((code (midimacs-code-at-point))
          (event (midimacs-event-at-point))
-         (track (midimacs-current-track))
+         (track (midimacs-track-at-point))
          (score)
-         (event-start-time (midimacs-event-start-time event))
-         (start-time (if event-start-time
-                         event-start-time
-                       (make-midimacs-time :beat (midimacs-current-beat)))))
+         (start-time (midimacs-event-start-time event)))
 
     (unless code
       (user-error "No code here"))
@@ -1189,6 +1187,130 @@
 
     (other-window 1) ;; switch back to seq
     score))
+
+(defun midimacs-merge-scores ()
+  (interactive)
+  (let* ((track (midimacs-track-at-point))
+         (beat (midimacs-beat-at-point))
+         (event (midimacs-track-event-at-beat track beat))
+         (prev-event (midimacs-track-event-at-beat track (1- beat))))
+
+    (unless (and event prev-event)
+      (user-error "No event and prev-event"))
+
+    (let* ((code (midimacs-event-code event))
+           (prev-code (midimacs-event-code prev-event))
+           (score (midimacs-code-extract-score code))
+           (prev-score (midimacs-code-extract-score prev-code))
+           (offset (midimacs-time- (midimacs-event-start-time event)
+                                   (midimacs-event-start-time prev-event))))
+
+      (unless (and score prev-score)
+        (user-error "No score and prev-score"))
+
+      (save-excursion
+        (delete-char 1)
+        (insert "."))
+
+      (midimacs-code-replace-score prev-code (midimacs-merge-score prev-score score offset))
+      (midimacs-code-open-window prev-code)
+      (erase-buffer)
+      (insert (midimacs-code-text prev-code))
+      (other-window 1))))
+
+(defun midimacs-code-replace-score (code score)
+  (destructuring-bind (before notes after)
+      (midimacs-score-split-text (midimacs-code-text code))
+    (setf (midimacs-code-text code)
+          (concat before
+                  (midimacs-score-text score)
+                  after))))
+
+(defun midimacs-merge-score (score-a score-b offset)
+  (let* ((notes-a (midimacs-score-notes score-a))
+         (notes-b (midimacs-score-notes score-b))
+         (notes (append notes-a
+                        (loop for (time pitch duration) in notes-b
+                              collect (list (midimacs-time+ offset time) pitch duration)))))
+    (make-midimacs-score :notes notes)))
+
+(defun midimacs-code-extract-score (code)
+  (let* ((text (midimacs-code-text code))
+         (score-text (elt (midimacs-score-split-text text) 1)))
+    (midimacs-parse-score score-text)))
+
+(defun midimacs-parse-score (score-text)
+  (let* ((lines (split-string score-text "\n+"))
+         (note-lines (cdr lines))
+         (cum-time (make-midimacs-time))
+         (notes (loop for line in note-lines
+                      if (string-match "[^ ]" line)
+                      collect (destructuring-bind (time pitch duration)
+                                  (midimacs-parse-note-line line)
+                                (unless time
+                                  (setq time cum-time))
+                                (setq cum-time (midimacs-time+ cum-time duration))
+                                (list time pitch duration)))))
+    (make-midimacs-score :notes notes)))
+
+(defun midimacs-parse-note-line (line)
+  (let* ((regex (concat "^"
+                        " *"
+                        "( *(?"
+                        " *"
+                        "\\([^ ]+\\)"
+                        " +"
+                        "\\([^ )]+\\)"
+                        "\\(?:"
+                        " +"
+                        "\\([^ )]+\\)"
+                        "\\)?"
+                        " *"
+                        ") *)? *)?"
+                        " *$"))
+         (m1) (m2) (m3)
+         (time) (pitch) (duration))
+
+    (string-match regex line)
+    (setq m1 (match-string 1 line))
+    (setq m2 (match-string 2 line))
+    (setq m3 (match-string 3 line))
+
+    (if m3
+        (progn
+          (setq time (midimacs-parse-time m1))
+          (setq pitch (midimacs-parse-pitch m2))
+          (setq duration (midimacs-parse-time m3)))
+      (setq pitch (midimacs-parse-pitch m1))
+      (setq duration (midimacs-parse-time m2)))
+    (list time pitch duration)))
+
+(defun midimacs-score-split-text (text)
+  (let ((anything-regex (concat
+                         "\\("
+                         "\\(?:.\\|\n\\)+"
+                         "\n"
+                         "\\)"))
+        (score-regex (concat
+                      "\\("
+                      " *(midimacs-score *\n"
+                      " *("
+                      "\\(?:"
+                      " *(.+) *\n*"
+                      "\\)+"
+                      " *) *)"
+                      "\\)"))
+        (regex (concat
+                "^"
+                anything-regex
+                score-regex
+                anything-regex
+                "$")))
+    (string-match regex text)
+    (list (match-string 1 text)
+          (match-string 2 text)
+          (match-string 3 text))))
+
 
 (provide 'midimacs)
 ;;; midimacs.el ends here
