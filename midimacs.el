@@ -28,6 +28,8 @@
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
   (local-set-key (kbd "C-x T") 'midimacs-tap-tempo-and-play)
   (local-set-key (kbd "C-x t") 'midimacs-tap-tempo)
+  (local-set-key (kbd "C-x m") 'midimacs-merge-scores)
+  (local-set-key (kbd "C-x s") 'midimacs-split-score)
   (setq-local after-change-functions '(midimacs-seq-after-change))
   (setq-local transient-mark-mode nil)
   (setq-local font-lock-defaults `(((,(midimacs-bad-track-regex) . font-lock-warning-face))))
@@ -679,7 +681,7 @@
                   (channel (midimacs-track-channel track)))
 
              (when (and init
-                        (midimacs-event-start-do-init event)
+                        (midimacs-event-do-init event)
                         (eq (midimacs-time-tick midimacs-song-time) 0))
 
                (setf (midimacs-track-state track)
@@ -1253,7 +1255,7 @@
          (event (midimacs-track-event-at-beat track beat))
          (prev-event (midimacs-track-event-at-beat track (1- beat))))
 
-    (unless (and event prev-event)
+    (unless (and event prev-event (midimacs-event-do-init event))
       (user-error "No event and prev-event"))
 
     (let* ((code (midimacs-event-code event))
