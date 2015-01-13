@@ -98,7 +98,6 @@
 (defconst midimacs-track-char ?>)
 (defconst midimacs-sustain-char ?.)
 (defconst midimacs-space-char ? )
-(defconst midimacs-default-recording-duration (midimacs-parse-time '1/2))
 
 (defvar midimacs-tracks '())
 (defvar midimacs-codes nil)
@@ -529,7 +528,7 @@
           (midimacs-code-text code) (buffer-string)))
   (message (concat "updated code " (string name))))
 
-(cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity 100) (off-velocity 0))
+(cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity 127) (off-velocity 0))
   (setq pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
                     ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
                     (t pitch-raw)))
@@ -938,7 +937,9 @@
            for pitch-sym = (if (= (length symbols) 3) (nth 1 symbols) (nth 0 symbols))
            for dur-sym = (if (= (length symbols) 3) (nth 2 symbols) (nth 1 symbols))
            for onset = (if onset-sym (midimacs-parse-time onset-sym) cum-time)
-           for pitch = (unless (eq '- pitch-sym) (midimacs-parse-pitch (symbol-name pitch-sym)))
+           for pitch = (if (eq (car pitch-sym) '\,)
+                           (eval (car (cdr pitch-sym)))
+                         (midimacs-parse-pitch (symbol-name pitch-sym)))
            for dur = (midimacs-parse-time dur-sym)
            do (setq cum-time (midimacs-time+ cum-time dur))
            when pitch
@@ -946,6 +947,18 @@
                       (midimacs-play-note (or ,channel channel) ,pitch ,dur))))))
 
 (defmacro midimacs-timed (timed-funcs)
+  (cons
+   'progn
+   (loop for (onset-sym on-func dur-sym off-func) in timed-funcs
+         for on-time = (midimacs-parse-time onset-sym)
+         for dur = (when dur-sym (midimacs-parse-time dur-sym))
+         for off-time = (when dur-sym (midimacs-time+ on-time dur))
+         collect `(cond ((midimacs-time= rel-time ,on-time)
+                         (lambda () ,on-func))
+                        ((and ,off-time ,off-func (midimacs-time= rel-time ,off-time))
+                         (lambda () ,off-func))))))
+
+(defmacro midimacs-timed-state (timed-funcs)
   (cons
    'progn
    (loop for (onset-sym on-func dur-sym off-func) in timed-funcs
@@ -1383,26 +1396,26 @@
     (list time pitch duration)))
 
 (defun midimacs-score-split-text (text)
-  (let ((anything-regex (concat
-                         "\\("
-                         "\\(?:.\\|\n\\)+"
-                         "\n"
-                         "\\)"))
-        (score-regex (concat
-                      "\\("
-                      " *(midimacs-score *\n"
-                      " *("
-                      "\\(?:"
-                      " *(.+) *\n*"
-                      "\\)+"
-                      " *) *)"
-                      "\\)"))
-        (regex (concat
-                "^"
-                anything-regex
-                score-regex
-                anything-regex
-                "$")))
+  (let* ((anything-regex (concat
+                          "\\("
+                          "\\(?:.\\|\n\\)+"
+                          "\n"
+                          "\\)"))
+         (score-regex (concat
+                       "\\("
+                       " *(midimacs-score *\n"
+                       " *("
+                       "\\(?:"
+                       " *(.+) *\n*"
+                       "\\)+"
+                       " *) *)"
+                       "\\)"))
+         (regex (concat
+                 "^"
+                 anything-regex
+                 score-regex
+                 anything-regex
+                 "$")))
     (string-match regex text)
     (list (match-string 1 text)
           (match-string 2 text)
@@ -1431,6 +1444,9 @@
       (insert (midimacs-score-text (midimacs-parse-score score-text)))
       (insert after)
       (goto-char p))))
+
+
+(defconst midimacs-default-recording-duration (midimacs-parse-time '1/2))
 
 
 (provide 'midimacs)
