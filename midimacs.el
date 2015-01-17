@@ -1,6 +1,10 @@
 ;; TODO:
 ;;
 ;; midimacs-quantize-region
+;; split out midilib
+;; package-ize
+;; midimacs-started-notes channel; midimacs-sustained-notes
+;; allow "meta-channels" >15
 
 ;; BUGS:
 ;; cannot show/hide timing when note is not parseable
@@ -216,13 +220,35 @@
       (end-of-line)
       (forward-char)
 
-      (setq midimacs-tracks
-            (remove nil (loop while (< (point) (point-max))
+      (let ((new-tracks (loop while (< (point) (point-max))
                               collect (let* ((track-s (buffer-substring (point) (line-end-position)))
                                              (track (midimacs-parse-track track-s)))
                                         (end-of-line)
                                         (when (< (point) (point-max)) (forward-char))
-                                        track)))))))
+                                        track))))
+        (setq midimacs-tracks
+              (midimacs-tracks-add-state midimacs-tracks
+                                         (remove nil new-tracks)))))))
+
+(defun midimacs-tracks-add-state (old-tracks new-tracks)
+  (if (midimacs-tracks-match midimacs-tracks new-tracks)
+      (loop for old-track in midimacs-tracks
+            for new-track in new-tracks
+            collect (progn
+                      (setf (midimacs-track-state new-track)
+                            (midimacs-track-state old-track))
+                      new-track))
+    (when (memq midimacs-state '(playing recording))
+      (warn "Destructive edit, discarding state and stopping")
+      (midimacs-stop))
+    new-tracks))
+
+(defun midimacs-tracks-match (tracks-a tracks-b)
+  (and (= (length tracks-a) (length tracks-b))
+       (loop for a in tracks-a
+             for b in tracks-b
+             always (= (midimacs-track-channel a)
+                       (midimacs-track-channel b)))))
 
 (defun midimacs-parse-track (line)
   (when (midimacs-string-is-track line)
@@ -305,7 +331,7 @@
       (goto-char (point-min))
       (end-of-line)
       (forward-char)
-      (buffer-substring (point) (point-max)))))
+      (buffer-substring-no-properties (point) (point-max)))))
 
 (defun midimacs-amidicat-proc-init ()
   (interactive)
@@ -556,29 +582,28 @@
   (let ((code (midimacs-get-code name)))
     (setf (midimacs-code-init code) init
           (midimacs-code-run code) run
-          (midimacs-code-text code) (buffer-string)))
+          (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max))))
   (message (concat "updated code " (string name))))
 
 (cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity nil) (off-velocity 0))
   (when (not velocity)
     (setq velocity (gethash channel midimacs-channel-default-velocities 100)))
 
-  (setq pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
-                    ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
-                    (t pitch-raw)))
+  (let ((pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
+                     ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
+                     (t pitch-raw)))
+        (duration (cond ((symbolp duration-raw) (midimacs-parse-time (symbol-name duration-raw)))
+                        ((stringp duration-raw) (midimacs-parse-time duration-raw))
+                        ((numberp duration-raw)
+                         (make-midimacs-time :beat (floor (/ duration-raw midimacs-ticks-per-beat))
+                                             :tick (mod duration-raw midimacs-ticks-per-beat)))
+                        (t duration-raw))))
 
-  (setq duration (cond ((symbolp duration-raw) (midimacs-parse-time (symbol-name duration-raw)))
-                       ((stringp duration-raw) (midimacs-parse-time duration-raw))
-                       ((numberp duration-raw)
-                        (make-midimacs-time :beat (floor (/ duration-raw midimacs-ticks-per-beat))
-                                            :tick (mod duration-raw midimacs-ticks-per-beat)))
-                       (t duration-raw)))
+    (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration)
+                                     (midimacs-midi-message-note-off channel pitch off-velocity))
+    (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity))))
 
-  (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration)
-                                   (midimacs-midi-message-note-off channel pitch off-velocity))
-  (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity)))
-
-(cl-defun midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity 100) (off-velocity 0))
+(cl-defun midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity nil) (off-velocity 0))
   (loop for pitch-raw in pitches-raw
         do (midimacs-play-note channel pitch-raw duration-raw velocity off-velocity)))
 
