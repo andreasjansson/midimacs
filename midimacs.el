@@ -1,16 +1,17 @@
 ;; TODO:
 ;;
 ;; midimacs-quantize-region
-;; midi event history per channel
 
 ;; BUGS:
+;; cannot show/hide timing when note is not parseable
+;; enharmonic shifts when hiding/showing
 ;; cannot save when code doesn't parse
 ;; when midi server goes away we die
 
 (eval-when-compile
-  (require 'cl)
-  (require 'heap)
-  (require 'picture))
+  (require 'cl))
+(require 'heap nil t)
+(require 'picture)
 
 (define-derived-mode midimacs-seq-mode fundamental-mode "midimacs-seq-mode"
   (midimacs-extend-picture-mode)
@@ -49,8 +50,8 @@
   (define-key midimacs-code-mode-map (kbd "C-x C-s") 'midimacs-save)
   (define-key midimacs-code-mode-map (kbd "C-x C-w") 'midimacs-save-as)
   (define-key midimacs-code-mode-map (kbd "C-x C-f") 'midimacs-open)
-  (define-key midimacs-code-mode-map (kbd "C-x h") 'midimacs-code-score-hide-times)
-  (define-key midimacs-code-mode-map (kbd "C-x s") 'midimacs-code-score-show-times)
+  (define-key midimacs-code-mode-map (kbd "C-c h") 'midimacs-code-score-hide-times)
+  (define-key midimacs-code-mode-map (kbd "C-c s") 'midimacs-code-score-show-times)
   (define-key midimacs-code-mode-map (kbd "C-c C-c") 'midimacs-code-update))
 
 ;;;###autoload
@@ -117,6 +118,8 @@
 (defvar midimacs-play-overlay nil)
 (defvar midimacs-midi-history nil)
 (defvar midimacs-recording-score nil)
+(defvar midimacs-start-func nil)
+(defvar midimacs-channel-default-velocities nil)
 
 (defface midimacs-top-bar-background-face
   '((t (:foreground "dim gray")))
@@ -136,6 +139,7 @@
 (defstruct midimacs-event
   code-name
   start-time
+  end-time
   do-init)
 
 (defstruct midimacs-code
@@ -180,6 +184,8 @@
   (setq midimacs-repeat-end-overlay nil)
   (setq midimacs-play-overlay nil)
   (setq midimacs-recording-score nil)
+  (setq midimacs-start-func nil)
+  (setq midimacs-channel-default-velocities (make-hash-table))
 
   (midimacs-close-all-code-buffers)
   (midimacs-amidicat-proc-init)
@@ -245,24 +251,45 @@
     (string-match track-regex track-s)))
 
 (defun midimacs-parse-events (codes-s)
-  (let ((chars (string-to-list codes-s))
-        (current nil)
-        (start-time nil))
-    (loop for c being the elements of chars
-          using (index i)
-          collect (cond ((= c midimacs-space-char)
-                         (setq current nil)
-                         nil)
-                        ((= c midimacs-sustain-char)
-                         (when current
-                           (make-midimacs-event :code-name current
-                                                :start-time start-time)))
-                        (t
-                         (setq current c)
-                         (setq start-time (make-midimacs-time :beat i))
-                         (make-midimacs-event :code-name c
-                                              :start-time start-time
-                                              :do-init t))))))
+  (let* ((chars (string-to-list codes-s))
+         (events-raw (loop for c being the elements of chars
+                           using (index i)
+                           with current = nil
+                           with start-time = nil
+                           when (and (= c midimacs-sustain-char) current)
+                                collect (make-midimacs-event :code-name current
+                                                             :start-time start-time)
+                           else when (and (not (= c midimacs-space-char))
+                                          (not (= c midimacs-sustain-char)))
+                                     collect (progn
+                                               (setq current c)
+                                               (setq start-time (make-midimacs-time :beat i))
+                                               (make-midimacs-event :code-name current
+                                                                    :start-time start-time
+                                                                    :do-init t))
+                                else
+                                     collect (progn
+                                               (setq current nil)
+                                               nil))))
+
+    ;; add end-time
+    (reverse (loop for e being the elements of (reverse events-raw)
+                   using (index ri)
+                   with end-time = nil
+                   for i = (- (length events-raw) ri 1)
+                   when (not e)
+                        collect (progn
+                                  (setq end-time nil)
+                                  nil)
+                        else when (not end-time)
+                             collect (progn
+                                       (setq end-time (make-midimacs-time :beat i))
+                                       (setf (midimacs-event-end-time e) end-time)
+                                       e)
+                             else
+                             collect (progn
+                                       (setf (midimacs-event-end-time e) end-time)
+                                       e)))))
 
 (defun midimacs-maybe-create-code (code-name)
   (let ((code (midimacs-get-code code-name)))
@@ -293,7 +320,7 @@
 
     (setq midimacs-amidicat-proc
           (start-process process-name buffer-name
-                         "amidicat" "--hex" "--port" "129:0" "--noread"))
+                         "amidicat" "--hex" "--port" "24:0" "--noread"))
     (set-process-filter midimacs-amidicat-proc 'midimacs-amidicat-read)))
 
 (defun midimacs-draw (&optional contents)
@@ -437,6 +464,10 @@
   (let ((event-time (midimacs-event-start-time event)))
     (midimacs-time- time event-time)))
 
+(defun midimacs-event-length (event)
+  (midimacs-time- (midimacs-event-end-time event)
+                  (midimacs-event-start-time event)))
+
 (defun midimacs-check-beat (beat)
   (unless (and beat (>= beat 0))
     (user-error "No beat here")))
@@ -505,7 +536,7 @@
  ?" (string code-name) "
 
  ;; init
- (lambda (channel song-time state)
+ (lambda (channel song-time length state)
 
    nil)
 
@@ -528,7 +559,10 @@
           (midimacs-code-text code) (buffer-string)))
   (message (concat "updated code " (string name))))
 
-(cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity 127) (off-velocity 0))
+(cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity nil) (off-velocity 0))
+  (when (not velocity)
+    (setq velocity (gethash channel midimacs-channel-default-velocities 100)))
+
   (setq pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
                     ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
                     (t pitch-raw)))
@@ -564,6 +598,9 @@
 
 (defun midimacs-program-change (channel program)
   (midimacs-midi-execute (midimacs-midi-message-program-change channel program)))
+
+(defun midimacs-set-velocity (channel velocity)
+  (puthash channel (min 127 velocity) midimacs-channel-default-velocities))
 
 (defun midimacs-midi-schedule-note-off (abs-time message)
   (heap-add midimacs-scheduled-note-offs (list abs-time message)))
@@ -612,11 +649,16 @@
     (midimacs-play)))
 
 (defun midimacs-play ()
+  (midimacs-prepare-play)
   (setq midimacs-state 'playing)
-  (setq midimacs-start-time-seconds (float-time))
-  (setq midimacs-abs-time (make-midimacs-time))
   (midimacs-redraw-play)
   (midimacs-tick))
+
+(defun midimacs-prepare-play ()
+  (setq midimacs-start-time-seconds (float-time))
+  (setq midimacs-abs-time (make-midimacs-time))
+  (when midimacs-start-func
+    (funcall midimacs-start-func)))
 
 (defun midimacs-record-keyboard ()
   (interactive)
@@ -627,10 +669,9 @@
     (user-error "Can only start recording from stopped")))
 
 (defun midimacs-record ()
+  (midimacs-prepare-play)
   (setq midimacs-recording-score (midimacs-get-recording-score)) ;; can fail and die here
   (setq midimacs-state 'recording)
-  (setq midimacs-start-time-seconds (float-time))
-  (setq midimacs-abs-time (make-midimacs-time))
   (midimacs-redraw-play)
   (midimacs-tick))
 
@@ -689,6 +730,7 @@
                      (funcall init
                               channel
                               midimacs-song-time
+                              (midimacs-event-length event)
                               (midimacs-track-state track)))
 
                (setf (midimacs-track-last-init-time track) midimacs-abs-time))
@@ -825,19 +867,31 @@
   (not (midimacs-time< a b)))
 
 (defun midimacs-time+ (&rest times)
-  (let ((ticks (loop for time in times
-                     sum (midimacs-time-to-ticks time))))
-    (midimacs-ticks-to-time ticks)))
+  (funcall (midimacs-time-op '+) times))
 
 (defun midimacs-time- (&rest times)
-  (let ((ticks (cond ((= (length times) 0) 0)
-                     ((= (length times) 1) (- (midimacs-time-to-ticks (car times))))
-                     (t (let* ((car-ticks (midimacs-time-to-ticks (car times)))
-                               (ticks (loop for time in (cdr times)
-                                            sum (midimacs-time-to-ticks time))))
-                          (- car-ticks ticks))))))
+  (funcall (midimacs-time-op '-) times))
 
-    (midimacs-ticks-to-time ticks)))
+(defun midimacs-time-op (f)
+  (lexical-let ((f f))
+    (lambda (times)
+      (let* ((times-ticks (mapcar 'midimacs-time-to-ticks times))
+             (ticks (apply f times-ticks)))
+        (midimacs-ticks-to-time ticks)))))
+
+(defun midimacs-time* (time factor)
+  (let ((ticks (midimacs-time-to-ticks time)))
+    (midimacs-ticks-to-time (* factor ticks))))
+
+(defun midimacs-time/ (a b)
+  (let ((ticks-a (midimacs-time-to-ticks a))
+        (ticks-b (midimacs-time-to-ticks b)))
+    (/ (float ticks-a) ticks-b)))
+
+(defun midimacs-time% (a b)
+  (let ((ticks-a (midimacs-time-to-ticks a))
+        (ticks-b (midimacs-time-to-ticks b)))
+    (midimacs-ticks-to-time (% ticks-a ticks-b))))
 
 (defun midimacs-make-scheduled-note-offs-heap ()
   (make-heap (lambda (a b) (midimacs-time< (nth 0 a) (nth 0 b)))))
@@ -937,7 +991,8 @@
            for pitch-sym = (if (= (length symbols) 3) (nth 1 symbols) (nth 0 symbols))
            for dur-sym = (if (= (length symbols) 3) (nth 2 symbols) (nth 1 symbols))
            for onset = (if onset-sym (midimacs-parse-time onset-sym) cum-time)
-           for pitch = (if (eq (car pitch-sym) '\,)
+           for pitch = (if (and (listp pitch-sym)
+                                (eq (car pitch-sym) '\,))
                            (eval (car (cdr pitch-sym)))
                          (midimacs-parse-pitch (symbol-name pitch-sym)))
            for dur = (midimacs-parse-time dur-sym)
@@ -969,6 +1024,13 @@
                          (setq state ((lambda (state) ,on-func) state)))
                         ((and ,off-time ,off-func (midimacs-time= rel-time ,off-time))
                          (setq state ((lambda (state) ,off-func) state)))))))
+
+(defmacro midimacs-start (&rest body)
+  (setq midimacs-start-func `(lambda () ,@body)))
+
+(defmacro midimacs-every (time-sym &rest body)
+  (let ((time (midimacs-parse-time time-sym)))
+    `(when (midimacs-time= (midimacs-time% rel-time ,time) (make-midimacs-time)) ,@body)))
 
 (defun midimacs-set-tempo (bpm)
   (interactive "nBeats per minute: ")
