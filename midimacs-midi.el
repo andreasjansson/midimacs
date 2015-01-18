@@ -38,8 +38,8 @@
 (defun midimacs-set-velocity (channel velocity)
   (puthash channel (min 127 velocity) midimacs-channel-default-velocities))
 
-(defun midimacs-midi-schedule-note-off (abs-time message)
-  (heap-add midimacs-scheduled-note-offs (list abs-time message)))
+(defun midimacs-midi-schedule-note-off (abs-time channel pitch off-velocity)
+  (heap-add midimacs-scheduled-note-offs (list abs-time channel pitch off-velocity)))
 
 (defun midimacs-midi-execute (message)
   (process-send-string midimacs-amidicat-proc (midimacs-midi-serialize message)))
@@ -53,10 +53,21 @@
          (data2-string (if (and data1 data2) (format " %02X" data2) "")))
     (concat status-string data1-string data2-string "\n")))
 
+(defun midimacs-delete-message-heap-until (heap pos)
+  (let ((el))
+    (loop while (and (setq el (heap-root heap))
+                     (midimacs-time<= (nth 0 el) pos))
+          collect (heap-delete-root heap))))
+
+(defun midimacs-trigger-note-offs ()
+  (let ((note-offs (midimacs-delete-message-heap-until midimacs-scheduled-note-offs midimacs-abs-time)))
+    (loop for (time channel pitch off-velocity) in note-offs
+          do (midimacs-note-off channel pitch off-velocity))))
+
 (defun midimacs-midi-flush-note-offs ()
   (let ((el))
     (loop while (setq el (heap-delete-root midimacs-scheduled-note-offs))
-          do (midimacs-midi-execute (nth 1 el)))))
+          do (midimacs-note-off (nth 1 el) (nth 2 el) (nth 3 el)))))
 
 (defun midimacs-amidicat-buffer-name ()
   "*midimacs-amidicat*")
@@ -69,22 +80,55 @@
   (when (not velocity)
     (setq velocity (gethash channel midimacs-channel-default-velocities 100)))
 
-  (let ((pitch (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
-                     ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
-                     (t pitch-raw)))
-        (duration (cond ((symbolp duration-raw) (midimacs-parse-time (symbol-name duration-raw)))
-                        ((stringp duration-raw) (midimacs-parse-time duration-raw))
-                        ((numberp duration-raw)
-                         (make-midimacs-time :beat (floor (/ duration-raw midimacs-ticks-per-beat))
-                                             :tick (mod duration-raw midimacs-ticks-per-beat)))
-                        (t duration-raw))))
+  (let ((pitch (midimacs-anything-to-pitch pitch-raw))
+        (duration (midimacs-anything-to-time duration-raw)))
 
-    (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration)
-                                     (midimacs-midi-message-note-off channel pitch off-velocity))
-    (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity))))
+    (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration) channel pitch off-velocity)
+    (midimacs-note-on channel pitch velocity)))
 
 (cl-defun midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity nil) (off-velocity 0))
   (loop for pitch-raw in pitches-raw
         do (midimacs-play-note channel pitch-raw duration-raw velocity off-velocity)))
+
+(defun midimacs-make-scheduled-note-offs-heap ()
+  (make-heap (lambda (a b) (midimacs-time< (nth 0 a) (nth 0 b)))))
+
+(defun midimacs-started (channel)
+  (gethash channel midimacs-channel-started-notes))
+
+(defun midimacs-sustained (channel)
+  (gethash channel midimacs-channel-sustained-notes))
+
+(defun midimacs-stopped (channel)
+  (gethash channel midimacs-channel-stopped-notes))
+
+(defun midimacs-note-on (channel pitch velocity)
+  (let ((started-notes (midimacs-started channel))
+        (sustained-notes (midimacs-sustained channel)))
+    (add-to-list 'started-notes pitch)
+    (puthash channel started-notes midimacs-channel-started-notes)
+    (add-to-list 'sustained-notes pitch)
+    (puthash channel sustained-notes midimacs-channel-sustained-notes))
+
+  (when (midimacs-valid-channel channel)
+    (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity))))
+
+(defun midimacs-note-off (channel pitch off-velocity)
+  (let ((sustained-notes (midimacs-sustained channel))
+        (stopped-notes (midimacs-stopped channel)))
+    (puthash channel (delq pitch sustained-notes) midimacs-channel-sustained-notes)
+    (add-to-list 'stopped-notes pitch)
+    (puthash channel stopped-notes midimacs-channel-stopped-notes))
+
+  (when (midimacs-valid-channel channel)
+    (midimacs-midi-execute (midimacs-midi-message-note-off channel pitch off-velocity))))
+
+(defun midimacs-valid-channel (channel)
+  (and (>= channel 0)
+       (<= channel 15)))
+
+(defun midimacs-reset-channel-started-stopped-notes ()
+  (setq midimacs-channel-started-notes (make-hash-table))
+  (setq midimacs-channel-stopped-notes (make-hash-table)))
 
 (provide 'midimacs-midi)

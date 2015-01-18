@@ -5,17 +5,14 @@
 (defun midimacs-tick ()
   (when (memq midimacs-state '(playing recording))
 
+    (midimacs-reset-channel-started-stopped-notes)
     (midimacs-trigger-note-offs)
     (midimacs-trigger-events)
     (midimacs-incr-position)
     (setq midimacs-last-tick-seconds (float-time))
 
     (when (eq midimacs-state 'recording)
-      (midimacs-remove-note-from-score
-       midimacs-recording-score
-       (midimacs-time- midimacs-song-time
-                       (midimacs-score-start-time midimacs-recording-score)
-                       (make-midimacs-time :tick -1)))) ;; one ahead
+      (midimacs-recording-score-clear-ahead))
 
     ;; only update when we have to
     (when (= (midimacs-time-tick midimacs-song-time) 0)
@@ -30,17 +27,6 @@
 
     (when (midimacs-time= midimacs-song-time midimacs-repeat-end)
       (setq midimacs-song-time midimacs-repeat-start))))
-
-(defun midimacs-trigger-note-offs ()
-  (let ((note-offs (midimacs-delete-message-heap-until midimacs-scheduled-note-offs midimacs-abs-time)))
-    (dolist (note-off note-offs)
-      (midimacs-midi-execute note-off))))
-
-(defun midimacs-delete-message-heap-until (heap pos)
-  (let ((el))
-    (loop while (and (setq el (heap-root heap))
-                     (midimacs-time<= (nth 0 el) pos))
-          collect (nth 1 (heap-delete-root heap)))))
 
 (defun midimacs-trigger-events ()
   (loop for (track event) in (midimacs-track-events-at-beat (midimacs-time-beat midimacs-song-time))

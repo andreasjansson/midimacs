@@ -63,9 +63,6 @@
         ((symbolp x) (symbol-name x))
         ((numberp x) (number-to-string x))))
 
-(defun midimacs-make-scheduled-note-offs-heap ()
-  (make-heap (lambda (a b) (midimacs-time< (nth 0 a) (nth 0 b)))))
-
 (defun midimacs-buffer-seq-name ()
   "*midimacs-seq*")
 

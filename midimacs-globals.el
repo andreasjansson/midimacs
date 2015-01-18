@@ -61,6 +61,9 @@
 (defvar midimacs-recording-score nil)
 (defvar midimacs-start-func nil)
 (defvar midimacs-channel-default-velocities nil)
+(defvar midimacs-channel-started-notes nil)
+(defvar midimacs-channel-sustained-notes nil)
+(defvar midimacs-channel-stopped-notes nil)
 
 (defface midimacs-top-bar-background-face
   '((t (:foreground "dim gray")))

@@ -116,6 +116,12 @@
         (format "%s%d" name octave))
     "-"))
 
+(defun midimacs-anything-to-time (time-raw)
+  (cond ((symbolp time-raw) (midimacs-parse-time (symbol-name time-raw)))
+        ((stringp time-raw) (midimacs-parse-time time-raw))
+        ((numberp time-raw) (make-midimacs-time :beat (floor (/ time-raw midimacs-ticks-per-beat))
+                                                :tick (mod time-raw midimacs-ticks-per-beat)))
+        (t time-raw)))
 
 (provide 'midimacs-time)
 

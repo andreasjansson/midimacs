@@ -34,7 +34,7 @@
                             (midimacs-track-state old-track))
                       new-track))
     (when (memq midimacs-state '(playing recording))
-      (warn "Destructive edit, discarding state and stopping")
+      (message "Destructive edit, discarding state and stopping")
       (midimacs-stop))
     new-tracks))
 
@@ -61,7 +61,7 @@
                            :events events))))
 
 (defun midimacs-string-is-track (track-s)
-  (let* ((channel-regex ">\\(0[0-9]\\|1[0-5]\\)")
+  (let* ((channel-regex ">[0-9][0-9]")
          (track-regex
           (concat
            "^"
@@ -123,32 +123,11 @@
            "."
            "\\)"))
 
-         (greater-than-15
-          (concat
-           "\\("
-           "[2-9]."
-           "\\|"
-           "1[6-9]"
-           "\\)"))
-
          (bad-channel
-          (concat
-           "\\("
-           not-a-two-char-number
-           "\\|"
-           greater-than-15
-           "\\)"))
-
-         (less-than-10 "0[0-9]")
-         (10-to-15 "1[0-5]")
+           not-a-two-char-number)
 
          (good-channel
-          (concat
-           "\\("
-           less-than-10
-           "\\|"
-           10-to-15
-           "\\)"))
+           "[0-9][0-9]")
 
          (space " ")
          (not-space "[^ ]")

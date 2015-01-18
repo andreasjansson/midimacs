@@ -375,6 +375,12 @@
       (insert after)
       (goto-char p))))
 
+(defun midimacs-recording-score-clear-ahead ()
+  (midimacs-remove-note-from-score
+   midimacs-recording-score
+   (midimacs-time- midimacs-song-time
+                   (midimacs-score-start-time midimacs-recording-score)
+                   (make-midimacs-time :tick -1)))) ;; one ahead
 
 (provide 'midimacs-score)
 

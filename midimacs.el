@@ -4,14 +4,11 @@
 ;;
 ;; midimacs-quantize-region
 ;; split out midilib
-;; package-ize
-;; midimacs-started-notes channel; midimacs-sustained-notes
-;; allow "meta-channels" >15
+;; configurable flag whether to use 0-index or 1-index
 
 ;; BUGS:
 ;; cannot show/hide timing when note is not parseable
 ;; enharmonic shifts when hiding/showing
-;; cannot save when code doesn't parse
 ;; when midi server goes away we die
 
 (eval-when-compile
@@ -98,6 +95,9 @@
   (setq midimacs-recording-score nil)
   (setq midimacs-start-func nil)
   (setq midimacs-channel-default-velocities (make-hash-table))
+  (setq midimacs-channel-started-notes (make-hash-table))
+  (setq midimacs-channel-sustained-notes (make-hash-table))
+  (setq midimacs-channel-stopped-notes (make-hash-table))
 
   (midimacs-close-all-code-buffers)
   (midimacs-amidicat-proc-init)
