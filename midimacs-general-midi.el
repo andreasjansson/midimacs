@@ -174,3 +174,5 @@
 (defconst midimacs-gm-drums-open-cuica 79)
 (defconst midimacs-gm-drums-mute-triangle 80)
 (defconst midimacs-gm-drums-open-triangle 81)
+
+(provide 'midimacs-general-midi)
