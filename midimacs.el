@@ -2,7 +2,13 @@
 
 ;; TODO:
 ;;
-;; midimacs-quantize-region
+;; quantize onsets
+;; quantize durations
+;; stretch notes (get rid of pauses)
+;;
+;; mute  m02 a...
+;; solo  s02 b...
+;;
 ;; split out midilib
 ;; configurable flag whether to use 0-index or 1-index
 

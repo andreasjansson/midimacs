@@ -15,7 +15,7 @@
            for pitches = (midimacs-extract-pitches pitch-sym)
            for dur = (midimacs-parse-time dur-sym)
            do (setq cum-time (midimacs-time+ cum-time dur))
-           when pitch
+           when pitches
            collect (append (list 'when `(midimacs-time= rel-time ,onset))
                            (loop for pitch in pitches
                                  collect `(midimacs-play-note (or ,channel channel) ,pitch ,dur)))))))

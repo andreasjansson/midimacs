@@ -124,7 +124,7 @@
     (setf (midimacs-score-notes midimacs-recording-score)
           (loop for (tm p d) in (midimacs-score-notes midimacs-recording-score)
                 if (and (= p pitch) (midimacs-time= d (make-midimacs-time :beat 999)))
-                     collect (let* ((repeat-time (midimacs-time- midimacs-repeat-start midimacs-repeat-end))
+                     collect (let* ((repeat-time (midimacs-time- midimacs-repeat-end midimacs-repeat-start))
                                     (raw-time (midimacs-time- rel-time tm))
                                     (duration (midimacs-time-mod raw-time repeat-time)))
                                (list tm p duration))

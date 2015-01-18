@@ -22,7 +22,8 @@
         (error (format "Couldn't parse pitch \"%s\"" s))))))
 
 (defun midimacs-anything-to-pitch (pitch-raw)
-  (cond ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
+  (cond ((not pitch-raw) nil)
+        ((symbolp pitch-raw) (midimacs-parse-pitch (symbol-name pitch-raw)))
         ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
         (t pitch-raw)))
 
