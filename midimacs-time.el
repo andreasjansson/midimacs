@@ -40,6 +40,12 @@
 (defun midimacs-time- (&rest times)
   (funcall (midimacs-time-op '-) times))
 
+(defun midimacs-time-min (&rest times)
+  (funcall (midimacs-time-op 'min) times))
+
+(defun midimacs-time-max (&rest times)
+  (funcall (midimacs-time-op 'max) times))
+
 (defun midimacs-time-op (f)
   (lexical-let ((f f))
     (lambda (times)

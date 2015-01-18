@@ -28,6 +28,7 @@
 (require 'midimacs-save)
 (require 'midimacs-util)
 (require 'midimacs-midi)
+(require 'midimacs-tempo)
 (require 'midimacs-general-midi)
 
 (define-derived-mode midimacs-seq-mode fundamental-mode "midimacs-seq-mode"

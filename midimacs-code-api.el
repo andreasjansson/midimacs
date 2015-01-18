@@ -12,15 +12,21 @@
            for pitch-sym = (if (= (length symbols) 3) (nth 1 symbols) (nth 0 symbols))
            for dur-sym = (if (= (length symbols) 3) (nth 2 symbols) (nth 1 symbols))
            for onset = (if onset-sym (midimacs-parse-time onset-sym) cum-time)
-           for pitch = (if (and (listp pitch-sym)
-                                (eq (car pitch-sym) '\,))
-                           (eval (car (cdr pitch-sym)))
-                         (midimacs-parse-pitch (symbol-name pitch-sym)))
+           for pitches = (midimacs-extract-pitches pitch-sym)
            for dur = (midimacs-parse-time dur-sym)
            do (setq cum-time (midimacs-time+ cum-time dur))
            when pitch
-           collect `(when (midimacs-time= rel-time ,onset)
-                      (midimacs-play-note (or ,channel channel) ,pitch ,dur))))))
+           collect (append (list 'when `(midimacs-time= rel-time ,onset))
+                           (loop for pitch in pitches
+                                 collect `(midimacs-play-note (or ,channel channel) ,pitch ,dur)))))))
+
+(defun midimacs-extract-pitches (pitch-sym)
+  (cond ((and (listp pitch-sym) (eq (car pitch-sym) '\,))
+         (list (eval (car (cdr pitch-sym)))))
+        ((listp pitch-sym)
+         (loop for ps in pitch-sym
+               collect (midimacs-parse-pitch ps)))
+        (t (list (midimacs-parse-pitch pitch-sym)))))
 
 (defmacro midimacs-timed (timed-funcs)
   (cons
