@@ -26,4 +26,11 @@
         ((stringp pitch-raw) (midimacs-parse-pitch pitch-raw))
         (t pitch-raw)))
 
+(defun midimacs-pitch-to-string (pitch)
+  (if pitch
+      (let ((octave (- (floor (/ pitch 12)) 1))
+            (name (cdr (assoc (% pitch 12) midimacs-pitch-names))))
+        (format "%s%d" name octave))
+    "-"))
+
 (provide 'midimacs-pitch)

@@ -67,6 +67,11 @@
         (ticks-b (midimacs-time-to-ticks b)))
     (midimacs-ticks-to-time (% ticks-a ticks-b))))
 
+(defun midimacs-time-mod (a b)
+  (let ((ticks-a (midimacs-time-to-ticks a))
+        (ticks-b (midimacs-time-to-ticks b)))
+    (midimacs-ticks-to-time (mod ticks-a ticks-b))))
+
 (defun midimacs-time-regex ()
   (let ((beat-regex "\\([0-9]+\\)")
         (frac-regex "\\([0-9]+\\)/\\([0-9]+\\)"))
@@ -114,13 +119,6 @@
             (if (= frac-num 0)
                 ""
               (format "%d/%d" frac-num frac-denom)))))
-
-(defun midimacs-pitch-to-string (pitch)
-  (if pitch
-      (let ((octave (- (floor (/ pitch 12)) 1))
-            (name (cdr (assoc (% pitch 12) midimacs-pitch-names))))
-        (format "%s%d" name octave))
-    "-"))
 
 (defun midimacs-anything-to-time (time-raw)
   (cond ((symbolp time-raw) (midimacs-parse-time (symbol-name time-raw)))

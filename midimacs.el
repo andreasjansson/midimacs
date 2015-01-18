@@ -29,6 +29,7 @@
 (require 'midimacs-util)
 (require 'midimacs-midi)
 (require 'midimacs-tempo)
+(require 'midimacs-keyboard)
 (require 'midimacs-general-midi)
 
 (define-derived-mode midimacs-seq-mode fundamental-mode "midimacs-seq-mode"
@@ -41,7 +42,8 @@
   (local-set-key (kbd "M-SPC") 'midimacs-toggle-play)
   (local-set-key (kbd "C-M-SPC") 'midimacs-play-here)
   (local-set-key (kbd "C-<return>") 'midimacs-position-here)
-  (local-set-key (kbd "C-x C-r") 'midimacs-record-keyboard)
+  (local-set-key (kbd "C-c C-k") 'midimacs-record-keyboard)
+  (local-set-key (kbd "C-c C-r") 'midimacs-record-midi)
   (local-set-key (kbd "C-x C-s") 'midimacs-save)
   (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
@@ -200,7 +202,7 @@
     (midimacs-seq-mode))
   (with-current-buffer (midimacs-score-buffer midimacs-recording-score)
     (setq midimacs-recording-score nil)
-    (midimacs-code-update)))
+    (eval-buffer)))
 
 (defun midimacs-set-tempo (bpm)
   (interactive "nBeats per minute: ")

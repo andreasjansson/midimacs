@@ -4,19 +4,29 @@
 
 (defun midimacs-amidicat-proc-init ()
   (interactive)
-  (let ((buffer-name (midimacs-amidicat-buffer-name))
-        (process-name "midimacs-amidicat"))
-    (when (get-buffer buffer-name)
-      (when (get-process process-name)
+  (let ((out-buffer-name "*midimacs-amidicat-output*")
+        (out-process-name "midimacs-amidicat-output")
+        (in-process-name "midimacs-amidicat-input")
+        (in-buffer-name "*midimacs-amidicat-input*"))
+    (when (get-buffer out-buffer-name)
+      (when (get-process out-process-name)
         (progn
           (midimacs-midi-flush-note-offs)
-          (delete-process process-name)))
-      (kill-buffer buffer-name))
+          (delete-process out-process-name)))
+      (kill-buffer out-buffer-name))
+    (when (get-buffer in-buffer-name)
+      (when (get-process in-process-name)
+        (progn
+          (delete-process in-process-name)))
+      (kill-buffer in-buffer-name))
 
-    (setq midimacs-amidicat-proc
-          (start-process process-name buffer-name
+    (setq midimacs-amidicat-output-proc
+          (start-process out-process-name out-buffer-name
                          "amidicat" "--hex" "--port" "24:0" "--noread"))
-    (set-process-filter midimacs-amidicat-proc 'midimacs-amidicat-read)))
+    (setq midimacs-amidicat-input-proc
+          (start-process in-process-name in-buffer-name
+                         "amidicat" "--hex" "--port" "28:0"))
+    (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read)))
 
 (defun midimacs-midi-message-note-on (channel pitch velocity)
   (make-midimacs-midi-message :status (+ #x90 channel)
@@ -32,6 +42,12 @@
   (make-midimacs-midi-message :status (+ #xC0 channel)
                               :data1 program))
 
+(defun midimacs-midi-message-is-note-on (message)
+  (eq (elt (format "%02X" (midimacs-midi-message-status message)) 0) ?9))
+
+(defun midimacs-midi-message-is-note-off (message)
+  (eq (elt (format "%02X" (midimacs-midi-message-status message)) 0) ?8))
+
 (defun midimacs-program-change (channel program)
   (midimacs-midi-execute (midimacs-midi-message-program-change channel program)))
 
@@ -42,7 +58,7 @@
   (heap-add midimacs-scheduled-note-offs (list abs-time channel pitch off-velocity)))
 
 (defun midimacs-midi-execute (message)
-  (process-send-string midimacs-amidicat-proc (midimacs-midi-serialize message)))
+  (process-send-string midimacs-amidicat-output-proc (midimacs-midi-serialize message)))
 
 (defun midimacs-midi-serialize (message)
   (let* ((status (midimacs-midi-message-status message))
@@ -52,6 +68,13 @@
          (data1-string (if data1 (format " %02X" data1) ""))
          (data2-string (if (and data1 data2) (format " %02X" data2) "")))
     (concat status-string data1-string data2-string "\n")))
+
+(defun midimacs-midi-unserialize (s)
+  (destructuring-bind (status-s data1-s &optional data2-s)
+      (split-string s " ")
+    (make-midimacs-midi-message :status (string-to-number status-s 16)
+                                :data1 (string-to-number data1-s 16)
+                                :data2 (when data2-s (string-to-number data2-s 16)))))
 
 (defun midimacs-delete-message-heap-until (heap pos)
   (let ((el))
@@ -69,12 +92,44 @@
     (loop while (setq el (heap-delete-root midimacs-scheduled-note-offs))
           do (midimacs-note-off (nth 1 el) (nth 2 el) (nth 3 el)))))
 
-(defun midimacs-amidicat-buffer-name ()
-  "*midimacs-amidicat*")
-
 (defun midimacs-amidicat-read (proc string)
-                                        ; TODO
-  (message string))
+  (loop for s in (split-string string "\n")
+        when (> (length s) 0)
+        do (midimacs-handle-midi-input (midimacs-midi-unserialize s))))
+
+(defun midimacs-handle-midi-input (message)
+  (midimacs-midi-execute message)
+  (when (eq midimacs-state 'recording)
+    (cond ((midimacs-midi-message-is-note-on message)
+           (midimacs-record-midi-note-on message))
+          ((midimacs-midi-message-is-note-off message)
+           (midimacs-record-midi-note-off message)))))
+
+(defun midimacs-record-midi-note-on (message)
+  (let* ((song-time (midimacs-quantized-song-time))
+         (pitch (midimacs-midi-message-data1 message))
+         (initial-duration (make-midimacs-time :beat 999))
+         (start-time (midimacs-score-start-time midimacs-recording-score))
+         (rel-time (midimacs-time- song-time start-time)))
+
+    (when (midimacs-time> rel-time (make-midimacs-time))
+      (midimacs-add-note-to-score midimacs-recording-score rel-time pitch initial-duration))))
+
+(defun midimacs-record-midi-note-off (message)
+  (let* ((song-time (midimacs-quantized-song-time))
+         (pitch (midimacs-midi-message-data1 message))
+         (start-time (midimacs-score-start-time midimacs-recording-score))
+         (rel-time (midimacs-time- song-time start-time)))
+
+    (setf (midimacs-score-notes midimacs-recording-score)
+          (loop for (tm p d) in (midimacs-score-notes midimacs-recording-score)
+                if (and (= p pitch) (midimacs-time= d (make-midimacs-time :beat 999)))
+                     collect (let* ((repeat-time (midimacs-time- midimacs-repeat-start midimacs-repeat-end))
+                                    (raw-time (midimacs-time- rel-time tm))
+                                    (duration (midimacs-time-mod raw-time repeat-time)))
+                               (list tm p duration))
+                else
+                     collect (list tm p d)))))
 
 (cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity nil) (off-velocity 0))
   (when (not velocity)
@@ -130,5 +185,12 @@
 (defun midimacs-reset-channel-started-stopped-notes ()
   (setq midimacs-channel-started-notes (make-hash-table))
   (setq midimacs-channel-stopped-notes (make-hash-table)))
+
+(defun midimacs-record-midi ()
+  (interactive)
+  (if (eq midimacs-state 'stopped)
+      (progn
+        (midimacs-record))
+    (user-error "Can only start recording from stopped")))
 
 (provide 'midimacs-midi)

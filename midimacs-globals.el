@@ -32,14 +32,13 @@
                                  (8 . Gs)
                                  (9 . A)
                                  (10 . As)
-                                 (11 . b)))
+                                 (11 . B)))
 
 (defconst midimacs-left-bar-length 4)
 (defconst midimacs-top-bar-height 1)
 (defconst midimacs-track-char ?>)
 (defconst midimacs-sustain-char ?.)
 (defconst midimacs-space-char ? )
-(defconst midimacs-default-recording-duration (/ midimacs-ticks-per-beat 2))
 
 (defvar midimacs-tracks '())
 (defvar midimacs-codes nil)
@@ -52,7 +51,8 @@
 (defvar midimacs-start-time-seconds nil)
 (defvar midimacs-last-tick-seconds nil) ; used for recording
 (defvar midimacs-filename nil)
-(defvar midimacs-amidicat-proc nil)
+(defvar midimacs-amidicat-output-proc nil)
+(defvar midimacs-amidicat-input-proc nil)
 (defvar midimacs-scheduled-note-offs nil)
 (defvar midimacs-repeat-start-overlay nil)
 (defvar midimacs-repeat-end-overlay nil)
@@ -112,5 +112,7 @@
   buffer
   channel
   start-time)
+
+(defconst midimacs-default-recording-duration (make-midimacs-time :tick (/ midimacs-ticks-per-beat 2)))
 
 (provide 'midimacs-globals)
