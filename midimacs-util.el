@@ -50,9 +50,6 @@
   (unless (and beat (>= beat 0))
     (user-error "No beat here")))
 
-(defun midimacs-get-code (code-name)
-  (gethash code-name midimacs-codes))
-
 (defun midimacs-beat-at-column (col)
   (when (>= col midimacs-left-bar-length)
     (- col midimacs-left-bar-length)))
@@ -66,34 +63,14 @@
         ((symbolp x) (symbol-name x))
         ((numberp x) (number-to-string x))))
 
-(defun midimacs-maybe-create-code (code-name)
-  (let ((code (midimacs-get-code code-name)))
-  (unless code
-    (setq code (make-midimacs-code :name code-name
-                                   :text (midimacs-code-template code-name)))
-    (puthash code-name code midimacs-codes))
-  code))  
-
-(defun midimacs-code-template (code-name)
-  (concat
-   "(midimacs-code
- ?" (string code-name) "
-
- ;; init
- (lambda (channel song-time length state)
-
-   nil)
-
- ;; run
- (lambda (channel song-time rel-time state)
-
-   state)
-
- )
-"))
-
 (defun midimacs-make-scheduled-note-offs-heap ()
   (make-heap (lambda (a b) (midimacs-time< (nth 0 a) (nth 0 b)))))
+
+(defun midimacs-buffer-seq-name ()
+  "*midimacs-seq*")
+
+(defun midimacs-buffer-seq ()
+  (get-buffer (midimacs-buffer-seq-name)))
 
 (provide 'midimacs-util)
 

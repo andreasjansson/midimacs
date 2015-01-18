@@ -1,7 +1,7 @@
 (eval-when-compile
   (require 'cl))
 
-(defcustom midimacs-length 256
+(defcustom midimacs-length 999
   "number of beats"
   :group 'midimacs)
 

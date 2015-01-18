@@ -25,7 +25,7 @@
 (require 'midimacs-parse-seq)
 (require 'midimacs-draw)
 (require 'midimacs-score)
-(require 'midimacs-buffer)
+(require 'midimacs-code)
 (require 'midimacs-pitch)
 (require 'midimacs-runtime)
 (require 'midimacs-save)

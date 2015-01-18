@@ -2,6 +2,35 @@
   (require 'cl))
 (require 'midimacs-globals)
 
+(defun midimacs-get-code (code-name)
+  (gethash code-name midimacs-codes))
+
+(defun midimacs-maybe-create-code (code-name)
+  (let ((code (midimacs-get-code code-name)))
+  (unless code
+    (setq code (make-midimacs-code :name code-name
+                                   :text (midimacs-code-template code-name)))
+    (puthash code-name code midimacs-codes))
+  code))  
+
+(defun midimacs-code-template (code-name)
+  (concat
+   "(midimacs-code
+ ?" (string code-name) "
+
+ ;; init
+ (lambda (channel song-time length state)
+
+   nil)
+
+ ;; run
+ (lambda (channel song-time rel-time state)
+
+   state)
+
+ )
+"))
+
 (defun midimacs-code-open-window (code)
   (let* ((buffer-name (midimacs-buffer-code-name (midimacs-code-name code)))
          (buffer-existed (get-buffer buffer-name))
@@ -22,23 +51,14 @@
 
     (switch-to-buffer buffer)))
 
-(defun midimacs-set-buffer-seq ()
-  (set-buffer (midimacs-buffer-seq-name)))
-
 (defun midimacs-set-buffer-code (code)
   (set-buffer (midimacs-buffer-code-name (midimacs-code-name code))))
 
 (defun midimacs-buffer-is-code (buffer)
   (string-match "^\\*midimacs-code-.\\*$" (buffer-name buffer)))
 
-(defun midimacs-buffer-seq-name ()
-  "*midimacs-seq*")
-
 (defun midimacs-buffer-code-name (code-name)
   (concat "*midimacs-code-" (string code-name) "*"))
-
-(defun midimacs-buffer-seq ()
-  (get-buffer (midimacs-buffer-seq-name)))
 
 (defun midimacs-buffer-code (code-name)
   (get-buffer (midimacs-buffer-code-name code-name)))
@@ -52,18 +72,11 @@
         when (midimacs-buffer-is-code buffer)
         do (kill-buffer buffer)))
 
-(defun midimacs-code-update-open-buffers ()
-  (dolist (buffer (midimacs-code-get-open-buffers))
-    (with-current-buffer buffer
-      (midimacs-code-update))))
+(defun midimacs-eval-all-codes ()
+  (loop for code being the hash-values of midimacs-codes
+        do (progn
+             (midimacs-code-open-window code)
+             (eval-buffer)
+             (other-window 1))))
 
-(defun midimacs-seq-buffer-contents ()
-  (with-current-buffer (midimacs-buffer-seq)
-    (save-excursion
-      (goto-char (point-min))
-      (end-of-line)
-      (forward-char)
-      (buffer-substring-no-properties (point) (point-max)))))
-
-
-(provide 'midimacs-buffer)
+(provide 'midimacs-code)
