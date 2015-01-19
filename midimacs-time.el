@@ -127,6 +127,12 @@
                                                 :tick (mod time-raw midimacs-ticks-per-beat)))
         (t time-raw)))
 
+(defun midimacs-time-quantize (time subdiv)
+  (let* ((time-ticks (midimacs-time-to-ticks time))
+         (subdiv-ticks (midimacs-time-to-ticks subdiv))
+         (quantized-ticks (* (round (/ time-ticks (float subdiv-ticks))) subdiv-ticks)))
+    (midimacs-ticks-to-time quantized-ticks)))
+
 (provide 'midimacs-time)
 
 ;; Local variables:

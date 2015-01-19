@@ -232,7 +232,6 @@
 (defun midimacs-parse-score (score-text)
   (let* ((form (read score-text))
          (raw-notes (elt form 1))
-         (channel (elt form 2))
          (cum-time (make-midimacs-time))
          (notes (loop for note in raw-notes
                       collect (destructuring-bind (time pitch duration)
@@ -283,29 +282,43 @@
           (match-string 2 text)
           (match-string 3 text))))
 
-(defun midimacs-code-score-hide-times ()
+(defmacro midimacs-edit-score (arg &rest body)
+  `(let ((text (buffer-string))
+         (p (point)))
+     (destructuring-bind (before ,arg after)
+         (midimacs-score-split-text text)
+       (erase-buffer)
+       (insert before)
+       (insert (progn ,@body))
+       (insert after)
+       (goto-char p))))
+
+(defun midimacs-core-score-hide-times ()
   (interactive)
-  (let ((text (buffer-string))
-        (p (point)))
-    (destructuring-bind (before score-text after)
-        (midimacs-score-split-text text)
-      (erase-buffer)
-      (insert before)
-      (insert (midimacs-score-text (midimacs-parse-score score-text) :hide-times t))
-      (insert after)
-      (goto-char p))))
+  (midimacs-edit-score
+   score-text
+   (midimacs-score-text (midimacs-parse-score score-text) :hide-times t)))
 
 (defun midimacs-code-score-show-times ()
   (interactive)
-  (let ((text (buffer-string))
-        (p (point)))
-    (destructuring-bind (before score-text after)
-        (midimacs-score-split-text text)
-      (erase-buffer)
-      (insert before)
-      (insert (midimacs-score-text (midimacs-parse-score score-text)))
-      (insert after)
-      (goto-char p))))
+  (midimacs-edit-score
+   score-text
+   (midimacs-score-text (midimacs-parse-score score-text))))
+
+(defun midimacs-score-quantize-times (subdiv-s)
+  (interactive "sQuantize to: ")
+  (midimacs-edit-score
+   score-text
+   (let* ((subdiv (midimacs-parse-time subdiv-s))
+          (score (midimacs-parse-score score-text))
+          (notes (midimacs-score-notes score))
+          (quantized-notes (midimacs-quantize-note-times notes subdiv)))
+     (setf (midimacs-score-notes score) quantized-notes)
+     (midimacs-score-text score))))
+
+(defun midimacs-quantize-note-times (notes subdiv)
+  (loop for (time pitch duration) in notes
+        collect (list (midimacs-time-quantize time subdiv) pitch duration)))
 
 (defun midimacs-recording-score-clear-ahead ()
   (midimacs-remove-note-from-score
