@@ -244,10 +244,18 @@
     (make-midimacs-score :notes notes)))
 
 (defun midimacs-score-parse-note (note)
-  (destructuring-bind (m1 m2 &optional m3) note
-    (if m3
-        (list (midimacs-parse-time m1) m2 (midimacs-parse-time m3))
-      (list nil m1 (midimacs-parse-time m2)))))
+  (let ((time-s) (pitch-s) (duration-s))
+    (destructuring-bind (m1 m2 &optional m3) note
+      (if m3
+          (setq time-s m1
+                pitch-s m2
+                duration-s m3)
+        (setq time-s nil
+              pitch-s m1
+              duration-s m2))
+      (list (when time-s (midimacs-parse-time time-s))
+            (if (eq pitch-s '-) nil pitch-s)
+            (midimacs-parse-time duration-s)))))
 
 (defun midimacs-score-split-text (text)
   (let* ((anything-regex (concat
