@@ -56,12 +56,12 @@
             (apply 'concat (loop for (tm p d) being the elements of notes using (index i)
                                  collect (concat (if (= i 0) "(" "\n     (")
                                                  (if hide-times
-                                                     (format "%-3s %s"
-                                                             (midimacs-pitch-to-string p)
+                                                     (format "%-5s %s"
+                                                             (or p "-")
                                                              (midimacs-time-to-string d))
-                                                   (format "%-9s %-3s %s"
+                                                   (format "%-9s %-5s %s"
                                                            (midimacs-time-to-string tm)
-                                                           (midimacs-pitch-to-string p)
+                                                           (or p "-")
                                                            (midimacs-time-to-string d)))
                                                  ")")))
             "))")))
@@ -230,50 +230,24 @@
     (midimacs-parse-score score-text)))
 
 (defun midimacs-parse-score (score-text)
-  (let* ((lines (split-string score-text "\n+"))
-         (note-lines (cdr lines))
+  (let* ((form (read score-text))
+         (raw-notes (elt form 1))
+         (channel (elt form 2))
          (cum-time (make-midimacs-time))
-         (notes (loop for line in note-lines
-                      if (string-match "[^ ]" line)
+         (notes (loop for note in raw-notes
                       collect (destructuring-bind (time pitch duration)
-                                  (midimacs-parse-note-line line)
+                                  (midimacs-score-parse-note note)
                                 (unless time
                                   (setq time cum-time))
                                 (setq cum-time (midimacs-time+ cum-time duration))
                                 (list time pitch duration)))))
     (make-midimacs-score :notes notes)))
 
-(defun midimacs-parse-note-line (line)
-  (let* ((regex (concat "^"
-                        " *"
-                        "( *(?"
-                        " *"
-                        "\\([^ ]+\\)"
-                        " +"
-                        "\\([^ )]+\\)"
-                        "\\(?:"
-                        " +"
-                        "\\([^ )]+\\)"
-                        "\\)?"
-                        " *"
-                        ") *)? *)?"
-                        " *$"))
-         (m1) (m2) (m3)
-         (time) (pitch) (duration))
-
-    (string-match regex line)
-    (setq m1 (match-string 1 line))
-    (setq m2 (match-string 2 line))
-    (setq m3 (match-string 3 line))
-
+(defun midimacs-score-parse-note (note)
+  (destructuring-bind (m1 m2 &optional m3) note
     (if m3
-        (progn
-          (setq time (midimacs-parse-time m1))
-          (setq pitch (midimacs-parse-pitch m2))
-          (setq duration (midimacs-parse-time m3)))
-      (setq pitch (midimacs-parse-pitch m1))
-      (setq duration (midimacs-parse-time m2)))
-    (list time pitch duration)))
+        (list (midimacs-parse-time m1) m2 (midimacs-parse-time m3))
+      (list nil m1 (midimacs-parse-time m2)))))
 
 (defun midimacs-score-split-text (text)
   (let* ((anything-regex (concat
