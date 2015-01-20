@@ -22,10 +22,10 @@
 
     (setq midimacs-amidicat-output-proc
           (start-process out-process-name out-buffer-name
-                         "amidicat" "--hex" "--port" "24:0" "--noread"))
+                         "amidicat" "--hex" "--port" "131:0" "--noread"))
     (setq midimacs-amidicat-input-proc
           (start-process in-process-name in-buffer-name
-                         "amidicat" "--hex" "--port" "28:0"))
+                         "amidicat" "--hex" "--port" "24:0"))
     (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read)))
 
 (defun midimacs-midi-message-note-on (channel pitch velocity)
@@ -108,22 +108,24 @@
 (defun midimacs-record-midi-note-on (message)
   (let* ((song-time (midimacs-quantized-song-time))
          (pitch (midimacs-midi-message-data1 message))
+         (pitch-string (midimacs-pitch-to-string pitch))
          (initial-duration (make-midimacs-time :beat 999))
          (start-time (midimacs-score-start-time midimacs-recording-score))
          (rel-time (midimacs-time- song-time start-time)))
 
     (when (midimacs-time> rel-time (make-midimacs-time))
-      (midimacs-add-note-to-score midimacs-recording-score rel-time pitch initial-duration))))
+      (midimacs-add-note-to-score midimacs-recording-score rel-time pitch-string initial-duration))))
 
 (defun midimacs-record-midi-note-off (message)
   (let* ((song-time (midimacs-quantized-song-time))
          (pitch (midimacs-midi-message-data1 message))
+         (pitch-string (midimacs-pitch-to-string pitch))
          (start-time (midimacs-score-start-time midimacs-recording-score))
          (rel-time (midimacs-time- song-time start-time)))
 
     (setf (midimacs-score-notes midimacs-recording-score)
           (loop for (tm p d) in (midimacs-score-notes midimacs-recording-score)
-                if (and (= p pitch) (midimacs-time= d (make-midimacs-time :beat 999)))
+                if (and (equal p pitch-string) (midimacs-time= d (make-midimacs-time :beat 999)))
                      collect (let* ((repeat-time (midimacs-time- midimacs-repeat-end midimacs-repeat-start))
                                     (raw-time (midimacs-time- rel-time tm))
                                     (duration (midimacs-time-mod raw-time repeat-time)))
