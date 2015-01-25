@@ -22,10 +22,10 @@
 
     (setq midimacs-amidicat-output-proc
           (start-process out-process-name out-buffer-name
-                         "amidicat" "--hex" "--port" "131:0" "--noread"))
+                         "amidicat" "--hex" "--port" "24:0" "--noread"))
     (setq midimacs-amidicat-input-proc
           (start-process in-process-name in-buffer-name
-                         "amidicat" "--hex" "--port" "24:0"))
+                         "amidicat" "--hex" "--port" "28:0"))
     (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read)))
 
 (defun midimacs-midi-message-note-on (channel pitch velocity)

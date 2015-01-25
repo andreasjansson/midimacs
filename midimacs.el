@@ -5,6 +5,7 @@
 ;; quantize onsets
 ;; quantize durations
 ;; stretch notes (get rid of pauses)
+;; set midi input channel
 ;;
 ;; mute  m02 a...
 ;; solo  s02 b...
