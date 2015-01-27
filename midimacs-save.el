@@ -9,6 +9,7 @@
 
 (defun midimacs-save ()
   (interactive)
+  (midimacs-update-all-code-texts)
   (let ((filename (or midimacs-filename
                       (read-file-name "Write midimacs project: "))))
     (with-temp-buffer
@@ -53,7 +54,7 @@
     (unless (equal version "v1")
       (user-error (concat "Unknown version: " version)))
 
-    (midimacs-init)
+    (midimacs-initialize)
 
     (setq midimacs-codes (midimacs-unserialize-codes codes))
     (midimacs-eval-all-codes)

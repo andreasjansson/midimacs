@@ -2,8 +2,7 @@
   (require 'cl))
 (require 'midimacs-globals)
 
-(defmacro midimacs-score (notes &rest channel)
-  "channel defaults to track channel"
+(defmacro midimacs-score (&rest notes)
   (let ((cum-time (make-midimacs-time)))
     (cons
      'progn
@@ -12,17 +11,19 @@
            for pitch-sym = (if (= (length symbols) 3) (nth 1 symbols) (nth 0 symbols))
            for dur-sym = (if (= (length symbols) 3) (nth 2 symbols) (nth 1 symbols))
            for onset = (if onset-sym (midimacs-parse-time onset-sym) cum-time)
-           for pitches = (midimacs-extract-pitches pitch-sym)
            for dur = (midimacs-parse-time dur-sym)
            do (setq cum-time (midimacs-time+ cum-time dur))
-           when pitches
-           collect (append (list 'when `(midimacs-time= rel-time ,onset))
-                           (loop for pitch in pitches
-                                 collect `(midimacs-play-note (or ,channel channel) ,pitch ,dur)))))))
+           collect (append `(when (midimacs-time= rel-time ,onset)
+                              (loop for pitch in (midimacs-extract-pitches (quote ,pitch-sym))
+                                    if pitch
+                                    collect (midimacs-play-note channel pitch ,dur))))))))
 
 (defun midimacs-extract-pitches (pitch-sym)
   (cond ((and (listp pitch-sym) (eq (car pitch-sym) '\,))
-         (list (eval (car (cdr pitch-sym)))))
+         (let ((evaled (eval (car (cdr pitch-sym)))))
+           (if (listp evaled)
+               evaled
+             (list evaled))))
         ((listp pitch-sym)
          (loop for ps in pitch-sym
                collect (midimacs-parse-pitch ps)))
@@ -52,18 +53,21 @@
                         ((and ,off-time ,off-func (midimacs-time= rel-time ,off-time))
                          (setq state ((lambda (state) ,off-func) state)))))))
 
-(defmacro midimacs-start (&rest body)
-  (setq midimacs-start-func `(lambda () ,@body)))
+(defmacro midimacs-global-init (&rest body)
+  (setq midimacs-global-init-func `(lambda () ,@body)))
 
 (defmacro midimacs-every (time-sym &rest body)
   (let ((time (midimacs-parse-time time-sym)))
     `(when (midimacs-time= (midimacs-time% rel-time ,time) (make-midimacs-time)) ,@body)))
 
-(defun midimacs-code (name init run)
-  (let ((code (midimacs-get-code name)))
-    (setf (midimacs-code-init code) init
-          (midimacs-code-run code) run
-          (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max))))
-  (message (concat "updated code " (string name))))
+(defmacro midimacs-init (args &rest body)
+  (destructuring-bind (channel song-time length state) args
+    (let ((code (midimacs-current-buffer-code)))
+      (setf (midimacs-code-init code) `(lambda (,channel ,song-time ,length ,state) ,@body)))))
+
+(defmacro midimacs-run (args &rest body)
+  (destructuring-bind (channel song-time rel-time state) args
+    (let ((code (midimacs-current-buffer-code)))
+      (setf (midimacs-code-run code) `(lambda (,channel ,song-time ,rel-time ,state) ,@body)))))
 
 (provide 'midimacs-code-api)

@@ -21,14 +21,9 @@
 
 (defun midimacs-score-update-buffer (score)
   (with-current-buffer (midimacs-score-buffer score)
-    (let ((p (search-backward "(midimacs-score" nil t)))
-      (unless p
-        (user-error "No midimacs-score in this buffer"))
-      (beginning-of-line)
-      (setq p (point))
-      (forward-sexp)
-      (delete-region p (point))
-      (insert (midimacs-score-text score)))))
+    (midimacs-edit-score
+     (old-score)
+     score)))
 
 (defun midimacs-score-add-note (score time pitch duration)
   (let ((notes (midimacs-score-notes score)))
@@ -51,20 +46,26 @@
   (let ((notes (if hide-times
                    (midimacs-score-notes-with-pauses score)
                  (midimacs-score-notes-without-pauses score))))
-    (concat "   (midimacs-score\n"
-            "    ("
-            (apply 'concat (loop for (tm p d) being the elements of notes using (index i)
-                                 collect (concat (if (= i 0) "(" "\n     (")
-                                                 (if hide-times
-                                                     (format "%-5s %s"
-                                                             (or p "-")
-                                                             (midimacs-time-to-string d))
-                                                   (format "%-9s %-5s %s"
-                                                           (midimacs-time-to-string tm)
-                                                           (or p "-")
-                                                           (midimacs-time-to-string d)))
-                                                 ")")))
-            "))")))
+    (concat
+     "(midimacs-score"
+     (loop for (tm p d) being the elements of notes using (index i)
+           for time-string = (intern (midimacs-time-to-string tm))
+           for duration-string = (intern (midimacs-time-to-string d))
+           concat "\n"
+           if hide-times
+             concat (format "(%-5s %s)" (or p "-") duration-string)
+           else
+             concat (format "(%-7s %-5s %s)" time-string (or p "-") duration-string))
+     ")\n")))
+
+(defun midimacs-score-indent ()
+  (save-excursion
+    (let ((pos))
+      (search-backward "(midimacs-score")
+      (setq pos (point))
+      (forward-char 1)
+      (up-list)
+      (indent-region pos (point)))))
 
 (defun midimacs-score-notes-without-pauses (score)
   (loop for (time pitch duration) in (midimacs-score-notes score)
@@ -111,18 +112,17 @@
 
 (defun midimacs-code-insert-score (code score)
   (goto-char (point-min))
+  (unless (search-forward "(midimacs-run" nil t)
+    (error "No midimacs-run in this buffer"))
+
+  (forward-line)
+
   (if (search-forward "(midimacs-score" nil t)
       (progn
-        (forward-line)
         (midimacs-score-update-buffer score))
-    (search-forward ";; run")
-    (search-forward "(lambda ")
-    (end-of-line)
     (insert "\n")
-    (insert "\n")
-    (insert (midimacs-score-text score)))
-
-  (eval-buffer))
+    (insert (midimacs-score-text score))
+    (midimacs-score-indent)))
 
 (defun midimacs-split-score (code-name)
   (interactive "cCode name: ")
@@ -155,14 +155,14 @@
         (midimacs-code-open-window code)
         (erase-buffer)
         (insert (midimacs-code-text code))
-        (eval-buffer)
+        (midimacs-code-eval-buffer)
         (other-window 1)
 
         (midimacs-code-open-window new-code)
         (setf (midimacs-score-buffer new-score) (current-buffer))
         (midimacs-code-insert-score new-code new-score)
         (midimacs-code-replace-score code prev-score)
-        (eval-buffer)
+        (midimacs-code-eval-buffer)
         (other-window 1)))))
 
 (defun midimacs-score-split (score offset)
@@ -205,7 +205,7 @@
       (midimacs-code-open-window prev-code)
       (erase-buffer)
       (insert (midimacs-code-text prev-code))
-      (eval-buffer)
+      (midimacs-code-eval-buffer)
       (other-window 1))))
 
 (defun midimacs-code-replace-score (code score)
@@ -231,7 +231,7 @@
 
 (defun midimacs-parse-score (score-text)
   (let* ((form (read score-text))
-         (raw-notes (elt form 1))
+         (raw-notes (subseq form 1))
          (cum-time (make-midimacs-time))
          (notes (loop for note in raw-notes
                       collect (destructuring-bind (time pitch duration)
@@ -257,33 +257,23 @@
             (midimacs-parse-time duration-s)))))
 
 (defun midimacs-score-split-text (text)
-  (let* ((anything-regex (concat
-                          "\\("
-                          "\\(?:.\\|\n\\)+"
-                          "\n"
-                          "\\)"))
-         (score-regex (concat
-                       "\\("
-                       " *(midimacs-score *\n"
-                       " *("
-                       "\\(?:"
-                       " *(.+) *\n*"
-                       "\\)+"
-                       " *) *)"
-                       "\\)"))
-         (regex (concat
-                 "^"
-                 anything-regex
-                 score-regex
-                 anything-regex
-                 "$")))
-    (string-match regex text)
-    (list (match-string 1 text)
-          (match-string 2 text)
-          (match-string 3 text))))
+  (save-excursion
+    (let ((start-pos (midimacs-first-score-pos text))
+          (end-pos))
+      (goto-char start-pos)
+      (forward-char 2)
+      (up-list)
+      (setq end-pos (point))
+      (list
+       (substring text (1- (point-min)) start-pos)
+       (substring text start-pos end-pos)
+       (substring text end-pos (1- (point-max)))))))
+
+(defun midimacs-first-score-pos (text)
+  (string-match "(midimacs-score" text))
 
 (defmacro midimacs-edit-score-text (arg &rest body)
-  `(let ((text (buffer-string))
+  `(let ((text (buffer-substring-no-properties (point-min) (point-max)))
          (p (point)))
      (destructuring-bind (before ,arg after)
          (midimacs-score-split-text text)
@@ -291,6 +281,7 @@
          (erase-buffer)
          (insert before)
          (insert new-score-text)
+         (midimacs-score-indent)
          (insert after)
          (goto-char p)))))
 

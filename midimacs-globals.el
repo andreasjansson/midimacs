@@ -9,7 +9,7 @@
   "beats per minute"
   :group 'midimacs)
 
-(defcustom midimacs-midi-output-port "24:0"
+(defcustom midimacs-midi-output-port "130:0"
   "Output port for amidicat; run midimacs-amidicat-proc-init after changing"
   :group 'midimacs)
 
@@ -67,7 +67,7 @@
 (defvar midimacs-play-overlay nil)
 (defvar midimacs-midi-history nil)
 (defvar midimacs-recording-score nil)
-(defvar midimacs-start-func nil)
+(defvar midimacs-global-init-func nil)
 (defvar midimacs-channel-default-velocities nil)
 (defvar midimacs-channel-started-notes nil)
 (defvar midimacs-channel-sustained-notes nil)

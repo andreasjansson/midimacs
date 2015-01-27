@@ -9,27 +9,19 @@
   (let ((code (midimacs-get-code code-name)))
   (unless code
     (setq code (make-midimacs-code :name code-name
-                                   :text (midimacs-code-template code-name)))
+                                   :text (midimacs-code-template)))
     (puthash code-name code midimacs-codes))
   code))  
 
-(defun midimacs-code-template (code-name)
-  (concat
-   "(midimacs-code
- ?" (string code-name) "
+(defun midimacs-code-template ()
+"(midimacs-init (channel song-time length state)
 
- ;; init
- (lambda (channel song-time length state)
+  nil)
 
-   nil)
+(midimacs-run (channel song-time rel-time state)
 
- ;; run
- (lambda (channel song-time rel-time state)
-
-   state)
-
- )
-"))
+  state)
+")
 
 (defun midimacs-code-open-window (code)
   (let* ((buffer-name (midimacs-buffer-code-name (midimacs-code-name code)))
@@ -55,7 +47,7 @@
   (set-buffer (midimacs-buffer-code-name (midimacs-code-name code))))
 
 (defun midimacs-buffer-is-code (buffer)
-  (string-match "^\\*midimacs-code-.\\*$" (buffer-name buffer)))
+  (midimacs-buffer-get-code-name buffer))
 
 (defun midimacs-buffer-code-name (code-name)
   (concat "*midimacs-code-" (string code-name) "*"))
@@ -78,5 +70,36 @@
              (midimacs-code-open-window code)
              (eval-buffer)
              (other-window 1))))
+
+(defun midimacs-update-all-code-texts ()
+  (loop for code being the hash-values of midimacs-codes
+        do (progn
+             (midimacs-code-open-window code)
+             (setf (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max)))
+             (other-window 1))))
+
+(defun midimacs-buffer-get-code-name (buffer)
+  (let* ((name (buffer-name buffer))
+         (match (string-match "^\\*midimacs-code-\\(.\\)\\*$" name)))
+    (if match
+        (string-to-char (match-string 1 name))
+      nil)))
+
+(defun midimacs-buffer-get-code (buffer)
+  (let ((code-name (midimacs-buffer-get-code-name buffer)))
+    (if code-name
+        (midimacs-get-code code-name)
+      nil)))
+
+(defun midimacs-current-buffer-code ()
+  (midimacs-buffer-get-code (current-buffer)))
+
+(defun midimacs-code-eval-buffer ()
+  (interactive)
+  (let ((code (midimacs-current-buffer-code)))
+    (eval-buffer)
+    (setf (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max)))
+    (message (format "updated code %s" (string (midimacs-code-name code))))))
+
 
 (provide 'midimacs-code)

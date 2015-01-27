@@ -2,8 +2,8 @@
 
 ;; TODO:
 ;;
-;; quantize onsets
-;; quantize durations
+;; midimacs-rename-code
+;;
 ;; stretch notes (get rid of pauses)
 ;; set midi input channel
 ;;
@@ -14,7 +14,6 @@
 ;; configurable flag whether to use 0-index or 1-index
 
 ;; BUGS:
-;; cannot show/hide timing when note is not parseable
 ;; enharmonic shifts when hiding/showing
 ;; when midi server goes away we die
 
@@ -79,16 +78,26 @@
   (define-key midimacs-code-mode-map (kbd "C-x C-f") 'midimacs-open)
   (define-key midimacs-code-mode-map (kbd "C-c h") 'midimacs-code-score-hide-times)
   (define-key midimacs-code-mode-map (kbd "C-c s") 'midimacs-code-score-show-times)
-  (define-key midimacs-code-mode-map (kbd "C-c C-c") 'eval-buffer))
+  (define-key midimacs-code-mode-map (kbd "C-c C-c") 'midimacs-code-eval-buffer)
+  (let ((keywords '(midimacs-init midimacs-run midimacs-global-init midimacs-score))
+        (defun-indented-macros '(midimacs-init midimacs-run))
+        (zero-indented-macros '(midimacs-score)))
+    (font-lock-add-keywords
+     'midimacs-code-mode (loop for keyword in keywords
+                               collect (cons (symbol-name keyword) font-lock-keyword-face)))
+    (loop for macro in defun-indented-macros
+          do (put macro 'lisp-indent-function 'defun))
+    (loop for macro in zero-indented-macros
+          do (put macro 'lisp-indent-function 0))))
 
 ;;;###autoload
 (defun midimacs () "Start midimacs"
   (interactive)
   (switch-to-buffer (midimacs-buffer-seq-name))
   (midimacs-seq-mode)
-  (midimacs-init))
+  (midimacs-initialize))
 
-(defun midimacs-init ()
+(defun midimacs-initialize ()
   (setq midimacs-tracks '())
   (setq midimacs-codes (make-hash-table :test 'equal))
   (setq midimacs-song-time (make-midimacs-time))
@@ -103,7 +112,7 @@
   (setq midimacs-repeat-end-overlay nil)
   (setq midimacs-play-overlay nil)
   (setq midimacs-recording-score nil)
-  (setq midimacs-start-func nil)
+  (setq midimacs-global-init-func nil)
   (setq midimacs-channel-default-velocities (make-hash-table))
   (setq midimacs-channel-started-notes (make-hash-table))
   (setq midimacs-channel-sustained-notes (make-hash-table))
@@ -179,8 +188,8 @@
 (defun midimacs-prepare-play ()
   (setq midimacs-start-time-seconds (float-time))
   (setq midimacs-abs-time (make-midimacs-time))
-  (when midimacs-start-func
-    (funcall midimacs-start-func)))
+  (when midimacs-global-init-func
+    (funcall midimacs-global-init-func)))
 
 (defun midimacs-record-keyboard ()
   (interactive)
