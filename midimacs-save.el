@@ -33,6 +33,7 @@
 
 (defun midimacs-open (filename)
   (interactive "fFind midimacs project: ")
+  (midimacs-stop)
   (let ((s (with-temp-buffer
              (insert-file-contents filename)
              (buffer-string))))

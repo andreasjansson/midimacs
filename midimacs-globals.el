@@ -9,11 +9,11 @@
   "beats per minute"
   :group 'midimacs)
 
-(defcustom midimacs-midi-output-port "130:0"
+(defcustom midimacs-midi-output-port "28:0"
   "Output port for amidicat; run midimacs-amidicat-proc-init after changing"
   :group 'midimacs)
 
-(defcustom midimacs-midi-input-port "28:0"
+(defcustom midimacs-midi-input-port "24:0"
   "Input port for amidicat; run midimacs-amidicat-proc-init after changing"
   :group 'midimacs)
 
