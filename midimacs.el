@@ -53,10 +53,11 @@
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
   (local-set-key (kbd "C-c m k") 'midimacs-record-keyboard)
   (local-set-key (kbd "C-c m r") 'midimacs-record-midi)
-  (local-set-key (kbd "C-c m o") 'midimacs-tap-tempo-and-play)
+  (local-set-key (kbd "C-c m T") 'midimacs-tap-tempo-and-play)
   (local-set-key (kbd "C-c m t") 'midimacs-tap-tempo)
   (local-set-key (kbd "C-c m m") 'midimacs-merge-scores)
   (local-set-key (kbd "C-c m s") 'midimacs-split-score)
+  (local-set-key (kbd "C-c m A") 'midimacs-amidicat-init)
   (setq-local after-change-functions '(midimacs-seq-after-change))
   (setq-local transient-mark-mode nil)
   (setq-local font-lock-defaults `(((,(midimacs-bad-track-regex) . font-lock-warning-face))))
@@ -119,7 +120,7 @@
   (setq midimacs-channel-stopped-notes (make-hash-table))
 
   (midimacs-close-all-code-buffers)
-  (midimacs-amidicat-proc-init)
+  (midimacs-amidicat-init)
   (midimacs-draw ""))
 
 (defun midimacs-extend-picture-mode ()

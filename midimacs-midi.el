@@ -2,7 +2,7 @@
   (require 'cl))
 (require 'midimacs-globals)
 
-(defun midimacs-amidicat-proc-init ()
+(defun midimacs-amidicat-init ()
   (interactive)
   (loop for direction in '(input output)
         when (midimacs-amidicat-proc-is-active direction)
@@ -18,14 +18,17 @@
   (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read))
 
 (defun* midimacs-amidicat-proc-open (direction &optional (noread nil))
-  (let ((port (midimacs-midi-port direction)))
+  (let ((port (midimacs-midi-port direction))
+        (direction-name (symbol-name direction)))
     (setq midimacs-amidicat-input-proc
           (start-process (midimacs-amidicat-proc-name direction)
                          (midimacs-amidicat-buffer-name direction)
                          "amidicat" "--hex" "--port" port (if noread "--noread" "")))
+    (sit-for 0.2) ; wait for proc to start
     (unless (midimacs-amidicat-proc-is-active direction)
-      (display-warning 'midimacs (concat "Failed to open midimacs " (symbol-name direction) " port " port))
-      (sit-for 0.5) ; wait for proc to die
+      (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
+                                         ", try `M-x customize-variable midimacs-midi-"
+                                         direction-name "-port` and `M-! amidicat --list`"))
       (midimacs-amidicat-buffer-close direction))))
 
 (defun midimacs-midi-port (direction)
