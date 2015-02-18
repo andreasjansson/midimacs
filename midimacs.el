@@ -1,22 +1,5 @@
 ;;; -*- lexical-binding: t; -*-
 
-;; TODO:
-;;
-;; midimacs-rename-code
-;;
-;; stretch notes (get rid of pauses)
-;; set midi input channel
-;;
-;; mute  m02 a...
-;; solo  s02 b...
-;;
-;; split out midilib
-;; configurable flag whether to use 0-index or 1-index
-
-;; BUGS:
-;; enharmonic shifts when hiding/showing
-;; when midi server goes away we die
-
 (eval-when-compile
   (require 'cl))
 (require 'heap)
@@ -79,7 +62,7 @@
   (define-key midimacs-code-mode-map (kbd "C-x C-f") 'midimacs-open)
   (define-key midimacs-code-mode-map (kbd "C-c m h") 'midimacs-code-score-hide-times)
   (define-key midimacs-code-mode-map (kbd "C-c m s") 'midimacs-code-score-show-times)
-  (define-key midimacs-code-mode-map (kbd "C-c m e") 'midimacs-code-eval-buffer)
+  (define-key midimacs-code-mode-map (kbd "C-c C-c") 'midimacs-code-eval-buffer)
   (let ((keywords '(midimacs-init midimacs-run midimacs-global-init midimacs-score))
         (defun-indented-macros '(midimacs-init midimacs-run))
         (zero-indented-macros '(midimacs-score)))

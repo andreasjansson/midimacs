@@ -26,9 +26,9 @@
                          "amidicat" "--hex" "--port" port (if noread "--noread" "")))
     (sit-for 0.2) ; wait for proc to start
     (unless (midimacs-amidicat-proc-is-active direction)
-      (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
-                                         ", try `M-x customize-variable midimacs-midi-"
-                                         direction-name "-port` and `M-! amidicat --list`"))
+      ;; (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
+      ;;                                    ", try `M-x customize-variable midimacs-midi-"
+      ;;                                    direction-name "-port` and `M-! amidicat --list`"))
       (midimacs-amidicat-buffer-close direction))))
 
 (defun midimacs-midi-port (direction)
