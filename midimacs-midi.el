@@ -4,29 +4,62 @@
 
 (defun midimacs-amidicat-proc-init ()
   (interactive)
-  (let ((out-buffer-name "*midimacs-amidicat-output*")
-        (out-process-name "midimacs-amidicat-output")
-        (in-process-name "midimacs-amidicat-input")
-        (in-buffer-name "*midimacs-amidicat-input*"))
-    (when (get-buffer out-buffer-name)
-      (when (get-process out-process-name)
-        (progn
-          (midimacs-midi-flush-note-offs)
-          (delete-process out-process-name)))
-      (kill-buffer out-buffer-name))
-    (when (get-buffer in-buffer-name)
-      (when (get-process in-process-name)
-        (progn
-          (delete-process in-process-name)))
-      (kill-buffer in-buffer-name))
+  (loop for direction in '(input output)
+        when (midimacs-amidicat-proc-is-active direction)
+          do (midimacs-amidicat-proc-kill direction)
+        when (midimacs-amidicat-buffer-has-process direction)
+          do (midimacs-amidicat-proc-kill direction)
+        when (midimacs-amidicat-buffer-is-open direction)
+          do (midimacs-amidicat-buffer-close direction))
 
-    (setq midimacs-amidicat-output-proc
-          (start-process out-process-name out-buffer-name
-                         "amidicat" "--hex" "--port" "28:0" "--noread"))
+  (midimacs-amidicat-proc-open 'input)
+  (midimacs-amidicat-proc-open 'output "--noread")
+
+  (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read))
+
+(defun* midimacs-amidicat-proc-open (direction &optional (noread nil))
+  (let ((port (midimacs-midi-port direction)))
     (setq midimacs-amidicat-input-proc
-          (start-process in-process-name in-buffer-name
-                         "amidicat" "--hex" "--port" "24:0"))
-    (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read)))
+          (start-process (midimacs-amidicat-proc-name direction)
+                         (midimacs-amidicat-buffer-name direction)
+                         "amidicat" "--hex" "--port" port (if noread "--noread" "")))
+    (unless (midimacs-amidicat-proc-is-active direction)
+      (display-warning 'midimacs (concat "Failed to open midimacs " (symbol-name direction) " port " port))
+      (sit-for 0.5) ; wait for proc to die
+      (midimacs-amidicat-buffer-close direction))))
+
+(defun midimacs-midi-port (direction)
+  (cond ((eq direction 'input) midimacs-midi-input-port)
+        ((eq direction 'output) midimacs-midi-output-port)))
+
+(defun midimacs-amidicat-proc-is-active (direction)
+  (and (midimacs-amidicat-proc direction)
+       (eq (process-status (midimacs-amidicat-proc direction)) 'run)))
+
+(defun midimacs-amidicat-buffer-has-process (direction)
+  (get-buffer-process (midimacs-amidicat-buffer direction)))
+
+(defun midimacs-amidicat-proc-kill (direction)
+  (kill-process (midimacs-amidicat-proc direction)))
+
+(defun midimacs-amidicat-buffer-is-open (direction)
+  (midimacs-amidicat-buffer direction))
+
+(defun midimacs-amidicat-buffer (direction)
+  (get-buffer (midimacs-amidicat-buffer-name direction)))
+
+(defun midimacs-amidicat-buffer-close (direction)
+  (kill-buffer (midimacs-amidicat-buffer direction)))
+
+(defun midimacs-amidicat-proc (direction)
+  (cond ((eq direction 'input) midimacs-amidicat-input-proc)
+        ((eq direction 'output) midimacs-amidicat-output-proc)))
+
+(defun midimacs-amidicat-proc-name (direction)
+  (midimacs-amidicat-buffer-name direction))
+
+(defun midimacs-amidicat-buffer-name (direction)
+  (concat "*midimacs-amidicat-" (symbol-name direction) "-proc*"))
 
 (defun midimacs-midi-message-note-on (channel pitch velocity)
   (make-midimacs-midi-message :status (+ #x90 channel)
@@ -58,7 +91,8 @@
   (heap-add midimacs-scheduled-note-offs (list abs-time channel pitch off-velocity)))
 
 (defun midimacs-midi-execute (message)
-  (process-send-string midimacs-amidicat-output-proc (midimacs-midi-serialize message)))
+  (when (midimacs-amidicat-proc-is-active 'output)
+    (process-send-string midimacs-amidicat-output-proc (midimacs-midi-serialize message))))
 
 (defun midimacs-midi-serialize (message)
   (let* ((status (midimacs-midi-message-status message))
@@ -70,11 +104,12 @@
     (concat status-string data1-string data2-string "\n")))
 
 (defun midimacs-midi-unserialize (s)
-  (destructuring-bind (status-s data1-s &optional data2-s)
-      (split-string s " ")
-    (make-midimacs-midi-message :status (string-to-number status-s 16)
-                                :data1 (string-to-number data1-s 16)
-                                :data2 (when data2-s (string-to-number data2-s 16)))))
+  (unless (string-prefix-p "Unable to connect to ALSA port" s)
+    (destructuring-bind (status-s data1-s &optional data2-s)
+        (split-string s " ")
+      (make-midimacs-midi-message :status (string-to-number status-s 16)
+                                  :data1 (string-to-number data1-s 16)
+                                  :data2 (when data2-s (string-to-number data2-s 16))))))
 
 (defun midimacs-delete-message-heap-until (heap pos)
   (let ((el))
