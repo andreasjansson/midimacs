@@ -1,4 +1,4 @@
-<img width="288" height="223" align="right" src="http://github.com/andreasjansson/midimacs/blob/master/github-assets/logo.png" />
+<img width="288" height="223" align="right" src="https://github.com/andreasjansson/midimacs/blob/master/github-assets/logo.png" />
 
 Midimacs
 ========
