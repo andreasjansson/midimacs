@@ -1,7 +1,7 @@
 Midimacs
 ========
 
-<div style="float: right"><img src="http://github.com/andreasjansson/midimacs/blob/master/github-assets/midiaccord.gif" /></div>
+<img align="right" src="http://github.com/andreasjansson/midimacs/blob/master/github-assets/midiaccord.gif" />
 
 A semi-algorithmic MIDI sequencer in Emacs Lisp.
 
