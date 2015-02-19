@@ -118,3 +118,10 @@ You can save your project with `C-x C-s` as usual, except it will serialize the 
 That's pretty much it for the basics! There are some examples in the _examples/_ folder.
 
 If you happen to actually know elisp - I don't really - and wanna help me make the code sane, that'd be great too!
+
+Motivation
+----------
+
+I've dabbled in algorithmic composition for a while, and it's cool and everything, but sometimes I just want some actual melodies in there. And some structure!
+
+When I write algorithms to make music it's usually just press go and see where the variables end up. With midimacs I'm able to build a composition where the individual pieces are algorithms. Semi-algorithmic.
