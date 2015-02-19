@@ -98,8 +98,7 @@
   (interactive)
   (let ((code (midimacs-current-buffer-code)))
     (eval-buffer)
-    (setf (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max)))
-    (message (format "updated code %s" (string (midimacs-code-name code))))))
+    (setf (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max)))))
 
 
 (provide 'midimacs-code)

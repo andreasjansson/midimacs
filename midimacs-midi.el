@@ -18,13 +18,16 @@
   (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read))
 
 (defun* midimacs-amidicat-proc-open (direction &optional (noread nil))
-  (let ((port (midimacs-midi-port direction))
-        (direction-name (symbol-name direction)))
+  (let* ((port (midimacs-midi-port direction))
+         (direction-name (symbol-name direction))
+         (process-args (list (midimacs-amidicat-proc-name direction)
+                             (midimacs-amidicat-buffer-name direction)
+                             "amidicat" "--hex" "--port" port)))
+    (when noread
+      (setq process-args (nconc process-args (list "--noread"))))
     (when (not (equal port "DEBUG"))
       (setq midimacs-amidicat-input-proc
-            (start-process (midimacs-amidicat-proc-name direction)
-                           (midimacs-amidicat-buffer-name direction)
-                           "amidicat" "--hex" "--port" port (if noread "--noread" "")))
+            (apply 'start-process process-args))
       (sit-for 0.2)                     ; wait for proc to start
       (unless (midimacs-amidicat-proc-is-active direction)
         (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
@@ -83,7 +86,10 @@
   (eq (elt (format "%02X" (midimacs-midi-message-status message)) 0) ?9))
 
 (defun midimacs-midi-message-is-note-off (message)
-  (eq (elt (format "%02X" (midimacs-midi-message-status message)) 0) ?8))
+  (let ((status-byte-char-0 (elt (format "%02X" (midimacs-midi-message-status message)) 0)))
+    (or (eq status-byte-char-0 ?8)
+        (and (eq status-byte-char-0 ?9)
+             (eq (midimacs-midi-message-data2 message) 0)))))
 
 (defun midimacs-program-change (channel program)
   (midimacs-midi-execute (midimacs-midi-message-program-change channel program)))
@@ -142,10 +148,10 @@
 (defun midimacs-handle-midi-input (message)
   (midimacs-midi-execute message)
   (when (eq midimacs-state 'recording)
-    (cond ((midimacs-midi-message-is-note-on message)
-           (midimacs-record-midi-note-on message))
-          ((midimacs-midi-message-is-note-off message)
-           (midimacs-record-midi-note-off message)))))
+    (cond ((midimacs-midi-message-is-note-off message)
+           (midimacs-record-midi-note-off message))
+          ((midimacs-midi-message-is-note-on message)
+           (midimacs-record-midi-note-on message)))))
 
 (defun midimacs-record-midi-note-on (message)
   (let* ((song-time (midimacs-quantized-song-time))

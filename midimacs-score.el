@@ -22,7 +22,7 @@
 (defun midimacs-score-update-buffer (score)
   (with-current-buffer (midimacs-score-buffer score)
     (midimacs-edit-score
-     (old-score)
+     old-score
      score)))
 
 (defun midimacs-score-add-note (score time pitch duration)
@@ -55,7 +55,7 @@
            if hide-times
              concat (format "(%-5s %s)" (or p "-") duration-string)
            else
-             concat (format "(%-7s %-5s %s)" time-string (or p "-") duration-string))
+             concat (format "(%-9s %-5s %s)" time-string (or p "-") duration-string))
      ")\n")))
 
 (defun midimacs-score-indent ()
