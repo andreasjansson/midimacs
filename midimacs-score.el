@@ -42,7 +42,7 @@
                 finally (return (nconc (subseq notes 0 i)
                                        (subseq notes (1+ i))))))))
 
-(cl-defun midimacs-score-text (score &key (hide-times nil))
+(defun* midimacs-score-text (score &key (hide-times nil))
   (let ((notes (if hide-times
                    (midimacs-score-notes-with-pauses score)
                  (midimacs-score-notes-without-pauses score))))

@@ -20,16 +20,17 @@
 (defun* midimacs-amidicat-proc-open (direction &optional (noread nil))
   (let ((port (midimacs-midi-port direction))
         (direction-name (symbol-name direction)))
-    (setq midimacs-amidicat-input-proc
-          (start-process (midimacs-amidicat-proc-name direction)
-                         (midimacs-amidicat-buffer-name direction)
-                         "amidicat" "--hex" "--port" port (if noread "--noread" "")))
-    (sit-for 0.2) ; wait for proc to start
-    (unless (midimacs-amidicat-proc-is-active direction)
-      ;; (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
-      ;;                                    ", try `M-x customize-variable midimacs-midi-"
-      ;;                                    direction-name "-port` and `M-! amidicat --list`"))
-      (midimacs-amidicat-buffer-close direction))))
+    (when (not (equal port "DEBUG"))
+      (setq midimacs-amidicat-input-proc
+            (start-process (midimacs-amidicat-proc-name direction)
+                           (midimacs-amidicat-buffer-name direction)
+                           "amidicat" "--hex" "--port" port (if noread "--noread" "")))
+      (sit-for 0.2)                     ; wait for proc to start
+      (unless (midimacs-amidicat-proc-is-active direction)
+        (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
+                                           ", try `M-x customize-variable midimacs-midi-"
+                                           direction-name "-port` and `M-! amidicat --list`"))
+        (midimacs-amidicat-buffer-close direction)))))
 
 (defun midimacs-midi-port (direction)
   (cond ((eq direction 'input) midimacs-midi-input-port)
@@ -94,8 +95,11 @@
   (heap-add midimacs-scheduled-note-offs (list abs-time channel pitch off-velocity)))
 
 (defun midimacs-midi-execute (message)
-  (when (midimacs-amidicat-proc-is-active 'output)
-    (process-send-string midimacs-amidicat-output-proc (midimacs-midi-serialize message))))
+  (let ((serialized-message (midimacs-midi-serialize message)))
+    (cond ((midimacs-amidicat-proc-is-active 'output)
+           (process-send-string midimacs-amidicat-output-proc (serialized-message)))
+          ((equal midimacs-midi-output-port "DEBUG")
+           (message (string-trim serialized-message))))))
 
 (defun midimacs-midi-serialize (message)
   (let* ((status (midimacs-midi-message-status message))
@@ -171,7 +175,7 @@
                 else
                      collect (list tm p d)))))
 
-(cl-defun midimacs-play-note (channel pitch-raw duration-raw &optional (velocity nil) (off-velocity 0))
+(defun* midimacs-play-note (channel pitch-raw duration-raw &optional (velocity nil) (off-velocity 0))
   (when (not velocity)
     (setq velocity (gethash channel midimacs-channel-default-velocities 100)))
 
@@ -181,7 +185,7 @@
     (midimacs-midi-schedule-note-off (midimacs-time+ midimacs-abs-time duration) channel pitch off-velocity)
     (midimacs-note-on channel pitch velocity)))
 
-(cl-defun midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity nil) (off-velocity 0))
+(defun* midimacs-play-notes (channel pitches-raw duration-raw &optional (velocity nil) (off-velocity 0))
   (loop for pitch-raw in pitches-raw
         do (midimacs-play-note channel pitch-raw duration-raw velocity off-velocity)))
 

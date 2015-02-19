@@ -63,8 +63,8 @@
   (define-key midimacs-code-mode-map (kbd "C-c m h") 'midimacs-code-score-hide-times)
   (define-key midimacs-code-mode-map (kbd "C-c m s") 'midimacs-code-score-show-times)
   (define-key midimacs-code-mode-map (kbd "C-c C-c") 'midimacs-code-eval-buffer)
-  (let ((keywords '(midimacs-init midimacs-run midimacs-global-init midimacs-score))
-        (defun-indented-macros '(midimacs-init midimacs-run))
+  (let ((keywords '(midimacs-init midimacs-run midimacs-global-init midimacs-score midimacs-every))
+        (defun-indented-macros '(midimacs-init midimacs-run midimacs-every))
         (zero-indented-macros '(midimacs-score)))
     (font-lock-add-keywords
      'midimacs-code-mode (loop for keyword in keywords

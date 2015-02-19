@@ -1,6 +1,6 @@
 <img width="288" height="223" align="right" src="https://github.com/andreasjansson/midimacs/blob/master/github-assets/logo.png" />
 
-Midimacs
+MIDIMACS
 ========
 
 A semi-algorithmic MIDI sequencer in Emacs Lisp.
@@ -30,11 +30,11 @@ The top row is the timeline, it's read-only. The rest of the buffer is free text
 
 The numbers in the timeline represents beats, and each cursor position is one beat.
 
-If a line starts with `>00 `, where `00` can be any two-digit number, it means that line will be a midi channel, all other lines are comments. A bit like literal programming!
+If a line starts with `>00 `, where `00` can be any two-digit number, it means that line will be a midi track, all other lines are comments. A bit like literal programming!
 
 ![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/line-basics.gif)
 
-A midi channel line has a sequence of codes. A code is represented by an ascii character. It can be any character except period and space. Period means continue with the previous code (without initialization, we'll get to what that means in a second). Space means "no code".
+A midi track line has a sequence of codes. A code is represented by an ascii character. It can be any character except period and space. Period means continue with the previous code (without initialization, we'll get to what that means in a second). Space means "no code".
 
 In the gif above, channel `00` has the code `a` repeated four beats, then re-initialized, then repeated another four beats. In channel `01`, `b` is repeated three times, `c` times, and `d` three times. Everything afterwards is silent.
 
@@ -50,7 +50,7 @@ Most codes have two functions (well, macros actually, but think of them as funct
 * _length_ - the length of code sequence until it either re-initializes or stops
 * _state_ - the current state of the channel (more below)
 
-It returns the new channel state, I'll explain that in a bit.
+It returns the new track state, I'll explain that in a bit.
 
 Below is an example of the parameter passed in.
 
@@ -60,11 +60,37 @@ Here are a couple important commands: To evaluate the code buffer, hit `C-c C-c`
 
 `midimacs-run` is executed every tick as long as there's a code in the sequencer. There are 24 ticks per beat.
 
-It takes the same parameters as `midimacs-init`, except `length` is replaced by `rel-time` which is the time since the last initialization.
+It takes the same parameters as `midimacs-init`, except _length_ is replaced by _rel-time_ which is the time since the last initialization.
 
-To illustrate `midimacs-run` I'll talk a bit about `midimacs-time` first. A `midimacs-time` struct has two fields, `beat` and `tick`. A number of arithmetic functions are defined for `midimacs-time`, like `midimacs-time+`, `midimacs-time-max`, `midimacs-time=`, `midimacs-time%`, etc.
+To illustrate `midimacs-run`, let's talk a bit about `midimacs-time` first. A `midimacs-time` struct has two fields, `beat` and `tick`. A number of arithmetic functions are defined for `midimacs-time`, like `midimacs-time+`, `midimacs-time-max`, `midimacs-time=`, `midimacs-time%`, etc.
 
 ![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/run.gif)
+
+The state is per track. It's persisted in memory between ticks and is one of the key features for making algorithmic music in midimacs. In the next example we'll use it to print fibonacci numbers.
+
+In the previous gif we printed the current song time twice per beat. There's a macro for that, `midimacs-every`. It takes two arguments, a time symbol and a body to be executed. Time symbols are consise and human readable. For example, `1/2` means half a beat, `2` means two beats, `2+1/2` means two and a half beats, etc.
+
+![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/state.gif)
+
+Now we're ready to make some actual sound. To do that you need to configure your midi output. First make sure you've installed amidicat. Type `M-! amidicat --list` to list the available outputs. `M-x customize-variable midimacs-midi-output-port` and enter your MIDI output port. Since gifs are silent I've set `midimacs-midi-output-port` to `"DEBUG"` which will just print the midi messages in the minibuffer.
+
+To play a note we'll use `midimacs-play-note`. It takes up to 5 arguments:
+* _channel_ - midi channel
+* _pitch_ - either an int 0 < x < 128 or a pitch symbol like `'C4`, `'Eb9`, `'Ds-1`, etc.
+* _duration_ - either a midimacs-time struct or a time symbol like `'1+1/8`, `4`, `1/3`, etc.
+* _velocity_ - optional, defaults to the channel velocity
+* _off-velocity_ - optional, defaults to 0
+
+![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/play-note.gif)
+
+Quite often you want to create notes non-algorithmically, at least I do. So I made a macro for it: `midimacs-score`.
+
+The body of `midimacs-score` is a sequence of tuples. They can be triples of `(START_TIME PITCH DURATION)` or pairs of `(PITCH DURATION)`. If they're pairs, the start time is just the cumulative sum of previous durations, i.e. the notes are played one after another without pause. To insert a pause, use a hyphen `-` as the pitch. Start time and durations are time symbols as before, and pitch is a pitch symbol.
+
+You can use `C-c m s` (`midimacs-code-show-times`) and `C-c m h` (`midimacs-code-hide-times`) to switch between triples and pairs. I do that in the example here:
+
+![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/score.gif)
+
 
 
 ~~~~ _TO BE CONTINUED_ ~~~~

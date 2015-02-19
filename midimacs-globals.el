@@ -3,19 +3,23 @@
 
 (defcustom midimacs-length 999
   "number of beats"
-  :group 'midimacs)
+  :group 'midimacs
+  :type 'integer)
 
 (defcustom midimacs-bpm 120
   "beats per minute"
-  :group 'midimacs)
+  :group 'midimacs
+  :type 'number)
 
 (defcustom midimacs-midi-output-port "28:0"
   "Output port for amidicat; run midimacs-amidicat-init after changing"
-  :group 'midimacs)
+  :group 'midimacs
+  :type 'string)
 
 (defcustom midimacs-midi-input-port "24:0"
   "Input port for amidicat; run midimacs-amidicat-init after changing"
-  :group 'midimacs)
+  :group 'midimacs
+  :type 'string)
 
 (defconst midimacs-ticks-per-beat 24)
 (defconst midimacs-pitch-numbers '(("c" . 0)

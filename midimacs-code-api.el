@@ -56,7 +56,7 @@
 (defmacro midimacs-global-init (&rest body)
   (setq midimacs-global-init-func `(lambda () ,@body)))
 
-(defmacro midimacs-every (time-sym &rest body)
+(defmacro* midimacs-every (time &rest body)
   (let ((time (midimacs-parse-time time-sym)))
     `(when (midimacs-time= (midimacs-time% rel-time ,time) (make-midimacs-time)) ,@body)))
 

@@ -122,9 +122,8 @@
 
 (defun midimacs-anything-to-time (time-raw)
   (cond ((symbolp time-raw) (midimacs-parse-time (symbol-name time-raw)))
+        ((numberp time-raw) (midimacs-parse-time (number-to-string time-raw)))
         ((stringp time-raw) (midimacs-parse-time time-raw))
-        ((numberp time-raw) (make-midimacs-time :beat (floor (/ time-raw midimacs-ticks-per-beat))
-                                                :tick (mod time-raw midimacs-ticks-per-beat)))
         (t time-raw)))
 
 (defun midimacs-time-quantize (time subdiv)
