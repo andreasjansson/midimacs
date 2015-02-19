@@ -47,12 +47,11 @@
 
 (define-derived-mode midimacs-seq-record-keyboard-mode midimacs-seq-mode "midimacs-seq-record-keyboard-mode"
   (setq buffer-read-only t)
-  (let ((keyboard-notes (midimacs-keyboard-notes)))
-    (loop for (char . note) in keyboard-notes
-          do (local-set-key (kbd (string char)) (lexical-let ((pitch (midimacs-parse-pitch note)))
-                                                  (lambda ()
-                                                    (interactive)
-                                                    (midimacs-record-key pitch)))))))
+  (loop for (char . note) in (midimacs-keyboard-notes)
+        do (local-set-key (kbd (string char)) (lexical-let ((note note))
+                                                (lambda ()
+                                                  (interactive)
+                                                  (midimacs-record-key note))))))
 
 (define-derived-mode midimacs-code-mode emacs-lisp-mode "midimacs-code-mode"
   (define-key midimacs-code-mode-map (kbd "M-SPC") 'midimacs-toggle-play)
