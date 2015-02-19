@@ -38,6 +38,8 @@ A midi track line has a sequence of codes. A code is represented by an ascii cha
 
 In the gif above, channel `00` has the code `a` repeated four beats, then re-initialized, then repeated another four beats. In channel `01`, `b` is repeated three times, `c` times, and `d` three times. Everything afterwards is silent.
 
+(NB in midimacs channels are 0-indexed, but most MIDI devices are 1-indexed. So you have to do that arithmetic in your head.)
+
 A code is actually a tiny little algorithm. If you hit RETURN while point is on a code, you'll be taken to that code's buffer, where you'll write the algorithm.
 
 ![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/open-code.gif)
@@ -105,9 +107,7 @@ If you're in a loop the score will get overwritten each time it loops around, so
 
 ![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/record-midi.gif)
 
-If you don't have a MIDI keyboard around, you can record with your computer keyboard as well. The key _z_ is C2, _s_ is C#2, _x_ is D2, _,_ is C3, _l_ is C#3, _q_ is also C3, _2_ is also C#3, you get the idea.
-
-Start recording with `C-c m k`.
+If you don't have a MIDI keyboard around, you can record with your computer keyboard as well. The key _z_ is C2, _s_ is C#2, _x_ is D2, _,_ is C3, _l_ is C#3, _q_ is also C3, _2_ is also C#3, you get the idea. Start recording with `C-c m k`.
 
 When you finished recording you might want to quantize the notes. Quantize the note start times with `C-c m q` and the durations with `C-c m d`.
 
