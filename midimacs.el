@@ -57,6 +57,8 @@
   (define-key midimacs-code-mode-map (kbd "M-SPC") 'midimacs-toggle-play)
   (define-key midimacs-code-mode-map (kbd "C-c m h") 'midimacs-code-score-hide-times)
   (define-key midimacs-code-mode-map (kbd "C-c m s") 'midimacs-code-score-show-times)
+  (define-key midimacs-code-mode-map (kbd "C-c m q") 'midimacs-score-quantize-times)
+  (define-key midimacs-code-mode-map (kbd "C-c m d") 'midimacs-score-quantize-durations)
   (define-key midimacs-code-mode-map (kbd "C-c C-c") 'midimacs-code-eval-buffer)
   (define-key midimacs-code-mode-map (kbd "C-x C-s") 'midimacs-save)
   (define-key midimacs-code-mode-map (kbd "C-x C-w") 'midimacs-save-as)

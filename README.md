@@ -72,7 +72,9 @@ In the previous gif we printed the current song time twice per beat. There's a m
 
 ![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/state.gif)
 
-Now we're ready to make some actual sound. To do that you need to configure your midi output. First make sure you've installed amidicat. Type `M-! amidicat --list` to list the available outputs. `M-x customize-variable midimacs-midi-output-port` and enter your MIDI output port. Since gifs are silent I've set `midimacs-midi-output-port` to `"DEBUG"` which will just print the midi messages in the minibuffer.
+Now we're ready to make some actual sound. To do that you need to configure your midi output. First make sure you've installed amidicat. Type `M-! amidicat --list` to list the available outputs. `M-x customize-variable midimacs-midi-output-port` and enter your MIDI output port. Once you've customized it you need to reinitialize amidicat from with `midimacs-amidicat-init` (`C-c m A` from the sequencer).
+
+Since gifs are silent I've set `midimacs-midi-output-port` to `DEBUG` which will just print the midi messages in the minibuffer.
 
 To play a note we'll use `midimacs-play-note`. It takes up to 5 arguments:
 * _channel_ - midi channel
@@ -91,6 +93,28 @@ You can use `C-c m s` (`midimacs-code-show-times`) and `C-c m h` (`midimacs-code
 
 ![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/score.gif)
 
+You can set loop points in the sequencer with `C-c C-[` and `C-c C-]`. To move the play head to point: `C-<return>`. To start playing at a specific point `C-M-SPC`.
 
+![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/seq-misc.gif)
 
-~~~~ _TO BE CONTINUED_ ~~~~
+Midimacs also lets you record MIDI with a real MIDI keyboard. First you need to customize the input port with `M-x customize-variable midimacs-midi-input-port` and run `midimacs-amidicat-init`.
+
+Then, in the sequencer, place the point over the code you want to record and hit `C-c m r`. The buffer for the code will open if it's not already open and recording will start. Any notes you play on the keyboard will be added to the `midimacs-score` macro in the code.
+
+If you're in a loop the score will get overwritten each time it loops around, so you have to be a bit careful to stop at the right moment.
+
+![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/record-midi.gif)
+
+If you don't have a MIDI keyboard around, you can record with your computer keyboard as well. The key _z_ is C2, _s_ is C#2, _x_ is D2, _,_ is C3, _l_ is C#3, _q_ is also C3, _2_ is also C#3, you get the idea.
+
+Start recording with `C-c m k`.
+
+When you finished recording you might want to quantize the notes. Quantize the note start times with `C-c m q` and the durations with `C-c m d`.
+
+![](https://github.com/andreasjansson/midimacs/blob/master/github-assets/quantize.gif)
+
+You can save your project with `C-x C-s` as usual, except it will serialize the sequencer and all the codes into a single file. When you're in a midimacs buffer you can open other midimacs projects with `C-x C-f`.
+
+That's pretty much it for the basics! There are some examples in the _examples/_ folder.
+
+If you happen to actually know elisp - I don't really - and wanna help me make the code sane, that'd be great too!
