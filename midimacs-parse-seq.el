@@ -16,14 +16,27 @@
       (forward-char)
 
       (let ((new-tracks (loop while (< (point) (point-max))
-                              collect (let* ((track-s (buffer-substring (point) (line-end-position)))
-                                             (track (midimacs-parse-track track-s)))
-                                        (end-of-line)
-                                        (when (< (point) (point-max)) (forward-char))
-                                        track))))
+                              for track-s = (buffer-substring (point) (line-end-position))
+                              for track = (midimacs-parse-track track-s)
+                              when track collect track
+                              do (end-of-line)
+                              when (< (point) (point-max)) do (forward-char))))
         (setq midimacs-tracks
-              (midimacs-tracks-add-state midimacs-tracks
-                                         (remove nil new-tracks)))))))
+              (midimacs-tracks-add-state
+               midimacs-tracks
+               (midimacs-tracks-add-mute
+                new-tracks)))))))
+
+
+(defun midimacs-tracks-add-mute (tracks)
+  (let ((solo-exists (loop for track in tracks
+                           thereis (midimacs-track-solo track))))
+    (loop for track in tracks
+          for mute = (or (midimacs-track-mute track)
+                         (and solo-exists (not (midimacs-track-solo track))))
+          collect (progn
+                    (setf (midimacs-track-mute track) mute)
+                    track))))
 
 (defun midimacs-tracks-add-state (old-tracks new-tracks)
   (if (midimacs-tracks-match midimacs-tracks new-tracks)
@@ -48,7 +61,10 @@
 (defun midimacs-parse-track (line)
   (when (midimacs-string-is-track line)
 
-    (let* ((channel-s (substring line 1 3))
+    (let* ((mute-solo-c (elt line 0))
+           (is-mute (eq mute-solo-c ?m))
+           (is-solo (eq mute-solo-c ?s))
+           (channel-s (substring line 1 3))
            (channel (string-to-number channel-s))
            (events-s (substring line 4))
            (events (midimacs-parse-events events-s)))
@@ -58,10 +74,12 @@
             do (midimacs-maybe-create-code (midimacs-event-code-name event)))
 
       (make-midimacs-track :channel channel
-                           :events events))))
+                           :events events
+                           :mute is-mute
+                           :solo is-solo))))
 
 (defun midimacs-string-is-track (track-s)
-  (let* ((channel-regex ">[0-9][0-9]")
+  (let* ((channel-regex "[>ms][0-9][0-9]")
          (track-regex
           (concat
            "^"
@@ -145,7 +163,7 @@
 
     (concat
      "^"
-     ">"
+     "[>ms]"
      "\\("
      bad-channel
      ".*"

@@ -107,6 +107,8 @@
 (defstruct midimacs-track
   channel
   events
+  mute
+  solo
   (state nil)
   (last-init-time (make-midimacs-time)))
 
