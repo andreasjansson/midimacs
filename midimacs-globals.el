@@ -21,6 +21,11 @@
   :group 'midimacs
   :type 'string)
 
+(defcustom midimacs-midi-input-channel "DEBUG"
+  "MIDI input channel"
+  :group 'midimacs
+  :type 'integer)
+
 (defconst midimacs-ticks-per-beat 24)
 (defconst midimacs-pitch-numbers '(("c" . 0)
                                    ("d" . 2)
@@ -63,8 +68,6 @@
 (defvar midimacs-start-time-seconds nil)
 (defvar midimacs-last-tick-seconds nil) ; used for recording
 (defvar midimacs-filename nil)
-(defvar midimacs-amidicat-output-proc nil)
-(defvar midimacs-amidicat-input-proc nil)
 (defvar midimacs-scheduled-note-offs nil)
 (defvar midimacs-repeat-start-overlay nil)
 (defvar midimacs-repeat-end-overlay nil)

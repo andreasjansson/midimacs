@@ -15,7 +15,8 @@
   (midimacs-amidicat-proc-open 'input)
   (midimacs-amidicat-proc-open 'output "--noread")
 
-  (set-process-filter midimacs-amidicat-input-proc 'midimacs-amidicat-read))
+  (when (midimacs-amidicat-proc 'input)
+   (set-process-filter (midimacs-amidicat-proc 'input) 'midimacs-amidicat-read)))
 
 (defun* midimacs-amidicat-proc-open (direction &optional (noread nil))
   (let* ((port (midimacs-midi-port direction))
@@ -26,8 +27,7 @@
     (when noread
       (setq process-args (nconc process-args (list "--noread"))))
     (when (not (equal port "DEBUG"))
-      (setq midimacs-amidicat-input-proc
-            (apply 'start-process process-args))
+      (apply 'start-process process-args)
       (sit-for 0.2)                     ; wait for proc to start
       (unless (midimacs-amidicat-proc-is-active direction)
         (display-warning 'midimacs (concat "Failed to open midimacs " direction-name " port " port
@@ -40,14 +40,15 @@
         ((eq direction 'output) midimacs-midi-output-port)))
 
 (defun midimacs-amidicat-proc-is-active (direction)
-  (and (midimacs-amidicat-proc direction)
-       (eq (process-status (midimacs-amidicat-proc direction)) 'run)))
+  (let ((proc (midimacs-amidicat-proc direction)))
+    (when proc
+      (member (process-status proc) '(run signal)))))
 
 (defun midimacs-amidicat-buffer-has-process (direction)
   (get-buffer-process (midimacs-amidicat-buffer direction)))
 
 (defun midimacs-amidicat-proc-kill (direction)
-  (kill-process (midimacs-amidicat-proc direction)))
+  (delete-process (midimacs-amidicat-proc direction)))
 
 (defun midimacs-amidicat-buffer-is-open (direction)
   (midimacs-amidicat-buffer direction))
@@ -59,10 +60,10 @@
   (kill-buffer (midimacs-amidicat-buffer direction)))
 
 (defun midimacs-amidicat-proc (direction)
-  (cond ((eq direction 'input) midimacs-amidicat-input-proc)
-        ((eq direction 'output) midimacs-amidicat-output-proc)))
+  (get-process (midimacs-amidicat-proc-name direction)))
 
 (defun midimacs-amidicat-proc-name (direction)
+  ;; process same name as buffer
   (midimacs-amidicat-buffer-name direction))
 
 (defun midimacs-amidicat-buffer-name (direction)
@@ -102,8 +103,9 @@
 
 (defun midimacs-midi-execute (message)
   (let ((serialized-message (midimacs-midi-serialize message)))
+    (print (string-trim serialized-message))
     (cond ((midimacs-amidicat-proc-is-active 'output)
-           (process-send-string midimacs-amidicat-output-proc (serialized-message)))
+           (process-send-string (midimacs-amidicat-proc 'output) serialized-message))
           ((equal midimacs-midi-output-port "DEBUG")
            (message (string-trim serialized-message))))))
 
@@ -143,7 +145,14 @@
 (defun midimacs-amidicat-read (proc string)
   (loop for s in (split-string string "\n")
         when (> (length s) 0)
-        do (midimacs-handle-midi-input (midimacs-midi-unserialize s))))
+        do (midimacs-handle-midi-input
+            (midimacs-midi-message-set-channel
+             (midimacs-midi-unserialize s) midimacs-midi-input-channel))))
+
+(defun midimacs-midi-message-set-channel (message channel)
+  (let ((status (midimacs-midi-message-status message)))
+   (setf (midimacs-midi-message-status message) (+ status channel))
+   message))
 
 (defun midimacs-handle-midi-input (message)
   (midimacs-midi-execute message)
@@ -207,7 +216,10 @@
 (defun midimacs-stopped (channel)
   (gethash channel midimacs-channel-stopped-notes))
 
-(defun midimacs-note-on (channel pitch velocity)
+(defun* midimacs-note-on (channel pitch &optional (velocity nil))
+  (when (not velocity)
+    (setq velocity (gethash channel midimacs-channel-default-velocities 100)))
+
   (let ((started-notes (midimacs-started channel))
         (sustained-notes (midimacs-sustained channel)))
     (add-to-list 'started-notes pitch)
@@ -218,7 +230,7 @@
   (when (midimacs-valid-channel channel)
     (midimacs-midi-execute (midimacs-midi-message-note-on channel pitch velocity))))
 
-(defun midimacs-note-off (channel pitch off-velocity)
+(defun* midimacs-note-off (channel pitch &optional (off-velocity 0))
   (let ((sustained-notes (midimacs-sustained channel))
         (stopped-notes (midimacs-stopped channel)))
     (puthash channel (delq pitch sustained-notes) midimacs-channel-sustained-notes)
@@ -242,5 +254,8 @@
       (progn
         (midimacs-record))
     (user-error "Can only start recording from stopped")))
+
+(defun midimacs-all-notes-off ()
+  (midimacs-midi-execute (midimacs-midi-message-all-notes-off)))
 
 (provide 'midimacs-midi)

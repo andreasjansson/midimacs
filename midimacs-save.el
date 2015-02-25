@@ -9,7 +9,6 @@
 
 (defun midimacs-save ()
   (interactive)
-  (midimacs-update-all-code-texts)
   (let ((filename (or midimacs-filename
                       (read-file-name "Write midimacs project: "))))
     (with-temp-buffer
@@ -29,7 +28,9 @@
 (defun midimacs-serialize-codes (codes)
   (loop for name being the hash-keys of codes
         using (hash-values code)
-        collect (cons name (midimacs-code-text code))))
+        for text = (midimacs-code-text code)
+        unless (equal (string-trim text) (string-trim (midimacs-code-template)))
+        collect (cons name text)))
 
 (defun midimacs-open (filename)
   (interactive "fFind midimacs project: ")

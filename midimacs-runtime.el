@@ -35,26 +35,27 @@
                   (run (midimacs-code-run code))
                   (channel (midimacs-track-channel track)))
 
-             (when (and init
-                        (midimacs-event-do-init event)
-                        (eq (midimacs-time-tick midimacs-song-time) 0))
+             (when (not (midimacs-track-mute track))
+               (when (and init
+                          (midimacs-event-do-init event)
+                          (eq (midimacs-time-tick midimacs-song-time) 0))
 
-               (setf (midimacs-track-state track)
-                     (funcall init
-                              channel
-                              midimacs-song-time
-                              (midimacs-event-length event)
-                              (midimacs-track-state track)))
+                 (setf (midimacs-track-state track)
+                       (funcall init
+                                channel
+                                midimacs-song-time
+                                (midimacs-event-length event)
+                                (midimacs-track-state track)))
 
-               (setf (midimacs-track-last-init-time track) midimacs-abs-time))
+                 (setf (midimacs-track-last-init-time track) midimacs-abs-time))
 
-             (when run
-               (setf (midimacs-track-state track)
-                     (funcall run
-                              channel
-                              midimacs-song-time
-                              (midimacs-event-rel-time event midimacs-song-time)
-                              (midimacs-track-state track)))))))
+               (when run
+                 (setf (midimacs-track-state track)
+                       (funcall run
+                                channel
+                                midimacs-song-time
+                                (midimacs-event-rel-time event midimacs-song-time)
+                                (midimacs-track-state track))))))))
 
 (defun midimacs-wait-time ()
   (let* ((tick-sec (/ 60.0 midimacs-bpm midimacs-ticks-per-beat))

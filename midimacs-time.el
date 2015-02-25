@@ -1,10 +1,10 @@
 (eval-when-compile
   (require 'cl))
-(require 'midimacs-globals)
 
 (defun midimacs-time-to-ticks (time)
-  (+ (midimacs-time-tick time)
-     (* (midimacs-time-beat time) midimacs-ticks-per-beat)))
+  (let ((time (midimacs-anything-to-time time)))
+    (+ (midimacs-time-tick time)
+       (* (midimacs-time-beat time) midimacs-ticks-per-beat))))
 
 (defun midimacs-ticks-to-time (ticks)
   (let ((beat (floor (/ ticks midimacs-ticks-per-beat)))
@@ -13,17 +13,21 @@
                         :tick tick)))
 
 (defun midimacs-time< (a b)
-  (let ((beat-a (midimacs-time-beat a))
-        (beat-b (midimacs-time-beat b))
-        (tick-a (midimacs-time-tick a))
-        (tick-b (midimacs-time-tick b)))
+  (let* ((a (midimacs-anything-to-time a))
+         (b (midimacs-anything-to-time b))
+         (beat-a (midimacs-time-beat a))
+         (beat-b (midimacs-time-beat b))
+         (tick-a (midimacs-time-tick a))
+         (tick-b (midimacs-time-tick b)))
 
     (cond ((< beat-a beat-b) t)
           ((and (= beat-a beat-b) (< tick-a tick-b)) t))))
 
 (defun midimacs-time= (a b)
-  (and (= (midimacs-time-beat a) (midimacs-time-beat b))
-       (= (midimacs-time-tick a) (midimacs-time-tick b))))
+  (let ((a (midimacs-anything-to-time a))
+        (b (midimacs-anything-to-time b)))
+    (and (= (midimacs-time-beat a) (midimacs-time-beat b))
+         (= (midimacs-time-tick a) (midimacs-time-tick b)))))
 
 (defun midimacs-time<= (a b)
   (or (midimacs-time= a b) (midimacs-time< a b)))
@@ -94,7 +98,7 @@
                (frac-denom (when frac-denom-s (string-to-number frac-denom-s)))
                (tick (if frac-num (midimacs-frac-to-tick frac-num frac-denom) 0)))
           (make-midimacs-time :beat beat :tick tick))
-      (error (format "Couldn't parse time \"%s\"" s)))))
+      (error (format "Couldn't parse time: %s" s)))))
 
 (defun midimacs-frac-to-tick (num denom)
   (let ((tick (/ (float (* num midimacs-ticks-per-beat)) denom)))
@@ -124,7 +128,8 @@
   (cond ((symbolp time-raw) (midimacs-parse-time (symbol-name time-raw)))
         ((numberp time-raw) (midimacs-parse-time (number-to-string time-raw)))
         ((stringp time-raw) (midimacs-parse-time time-raw))
-        (t time-raw)))
+        ((midimacs-time-p time-raw) time-raw)
+        (t (error (format "Couldn't parse time: %s" (prin1-to-string time-raw))))))
 
 (defun midimacs-time-quantize (time subdiv)
   (let* ((time-ticks (midimacs-time-to-ticks time))
