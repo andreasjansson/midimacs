@@ -20,14 +20,14 @@
 (defun midimacs-serialize-project ()
   (prin1-to-string (list "midimacs project"
                          "v1"
-                         (midimacs-serialize-codes midimacs-codes)
+                         (midimacs-serialize-codes (midimacs-visible-codes))
                          midimacs-repeat-start
                          midimacs-repeat-end
                          (midimacs-seq-buffer-contents))))
 
 (defun midimacs-serialize-codes (codes)
-  (loop for name being the hash-keys of codes
-        using (hash-values code)
+  (loop for code in codes
+        for name = (midimacs-code-name code)
         for text = (midimacs-code-text code)
         unless (equal (string-trim text) (string-trim (midimacs-code-template)))
         collect (cons name text)))

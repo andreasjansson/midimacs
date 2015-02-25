@@ -83,6 +83,11 @@
   (make-midimacs-midi-message :status (+ #xC0 channel)
                               :data1 program))
 
+(defun midimacs-midi-message-all-notes-off (channel)
+  (make-midimacs-midi-message :status (+ #xB0 channel)
+                              :data1 #x7B
+                              :data2 0))
+
 (defun midimacs-midi-message-is-note-on (message)
   (eq (elt (format "%02X" (midimacs-midi-message-status message)) 0) ?9))
 
@@ -103,7 +108,6 @@
 
 (defun midimacs-midi-execute (message)
   (let ((serialized-message (midimacs-midi-serialize message)))
-    (print (string-trim serialized-message))
     (cond ((midimacs-amidicat-proc-is-active 'output)
            (process-send-string (midimacs-amidicat-proc 'output) serialized-message))
           ((equal midimacs-midi-output-port "DEBUG")
@@ -255,7 +259,11 @@
         (midimacs-record))
     (user-error "Can only start recording from stopped")))
 
-(defun midimacs-all-notes-off ()
-  (midimacs-midi-execute (midimacs-midi-message-all-notes-off)))
+(defun midimacs-all-notes-off (&optional channel)
+  (interactive)
+  (if channel
+      (midimacs-midi-execute (midimacs-midi-message-all-notes-off channel))
+    (loop for channel below 16
+          do (midimacs-all-notes-off channel))))
 
 (provide 'midimacs-midi)

@@ -100,5 +100,13 @@
     (eval-buffer)
     (setf (midimacs-code-text code) (buffer-substring-no-properties (point-min) (point-max)))))
 
+(defun midimacs-visible-codes ()
+  (delete-duplicates
+   (loop for track in midimacs-tracks
+         append (loop for event in (midimacs-track-events track)
+                      if event
+                      collect (midimacs-event-code event)))
+   :key 'midimacs-code-name))
+
 
 (provide 'midimacs-code)
