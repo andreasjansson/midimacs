@@ -34,13 +34,16 @@
 
 (defun midimacs-open (filename)
   (interactive "fFind midimacs project: ")
-  (midimacs-stop)
   (let ((s (with-temp-buffer
              (insert-file-contents filename)
              (buffer-string))))
 
-    (midimacs-unserialize-project s))
-  (setq midimacs-filename filename))
+    (if (string-prefix-p "(\"midimacs project\"" s)
+        (progn
+          (midimacs-stop)
+          (midimacs-unserialize-project s)
+          (setq midimacs-filename filename))
+      (find-file filename))))
 
 (defun midimacs-unserialize-project (s)
   (destructuring-bind (header
