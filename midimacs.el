@@ -35,6 +35,7 @@
   (local-set-key (kbd "C-c m T") 'midimacs-tap-tempo-and-play)
   (local-set-key (kbd "C-c m t") 'midimacs-tap-tempo)
   (local-set-key (kbd "C-c m A") 'midimacs-amidicat-init)
+  (local-set-key (kbd "C-c m n") 'midimacs-rename-code)
   (local-set-key (kbd "C-x C-s") 'midimacs-save)
   (local-set-key (kbd "C-x C-w") 'midimacs-save-as)
   (local-set-key (kbd "C-x C-f") 'midimacs-open)
