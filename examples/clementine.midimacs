@@ -1,0 +1,287 @@
+("midimacs project" "v1" ((73 . "(midimacs-init (channel song-time length state)
+
+  (midimacs-program-change 0 10)
+  (midimacs-program-change 1 04)
+  (setq midimacs-bpm 200)
+
+  nil)
+
+(midimacs-run (channel song-time rel-time state)
+
+  state)
+
+(defun rnd (from to)
+  (let ((r (/ (random 10000) 10000.0)))
+    (+ (* r (- to from)) from)))
+
+(defun init-weights (n-inputs n-outputs)
+  (loop for i below n-outputs
+        collect (loop for j below n-inputs
+                      collect (rnd -0.1 0.1))))
+
+(defun train (input-list output-list n-inputs n-outputs n-iter learning-rate reg)
+  (let ((weights (init-weights n-inputs n-outputs)))
+    (loop for i below n-iter
+          do (loop for j below (length input-list)
+                   for inputs = (elt input-list j)
+                   for outputs = (elt output-list j)
+                   do (setq weights (iterate inputs outputs weights n-inputs n-outputs learning-rate reg))))
+    weights))
+
+(defun init-weight-updates (n-inputs n-outputs)
+  (loop for i below n-outputs
+        collect (loop for j below n-inputs
+                      collect 0)))
+
+(defun elt2d (x i j)
+  (elt (elt x i) j))
+
+(defun predict (inputs weights n-inputs n-outputs)
+  (let* ((o (loop for i below n-outputs
+                  collect (loop for j below n-inputs
+                                sum (* (elt2d weights i j) (elt inputs j)))))
+         (exp-o (loop for i below n-outputs
+                      collect (exp (elt o i))))
+         (sum-exp-o (loop for i below n-outputs
+                          sum (elt exp-o i))))
+    (loop for i below n-outputs
+          collect (/ (elt exp-o i) sum-exp-o))))
+
+(defun weight-update (weight input pred output reg)
+  (let ((grad (- (* (- output pred) input) (* reg weight))))
+    (+ weight grad)))
+
+(defun iterate (inputs outputs weights n-inputs n-outputs learning-rate reg)
+  (let ((preds (predict inputs weights n-inputs n-outputs)))
+    (loop for i below n-outputs
+          for output = (elt outputs i)
+          for pred = (elt preds i)
+          collect (loop for j below n-inputs
+                        for input = (elt inputs j)
+                        for weight = (elt2d weights i j)
+                        for update = (weight-update weight input pred output reg)
+                        for new-weight = (+ weight (* learning-rate update))
+                        collect new-weight))))
+
+(defun argmax (xs)
+  (loop with max = 0
+        with max-i = 0
+        for x being the elements of xs
+        using (index i)
+        when (> x max)
+        do (setq max x max-i i)
+        finally (return max-i)))
+
+(defun accuracy (input-list output-list weights n-inputs n-outputs)
+  (loop for inputs in input-list
+      for outputs in output-list
+      when (= (argmax (predict inputs weights n-inputs n-outputs))
+              (argmax outputs))
+      sum (/ 1.0 (length output-list))))
+
+(defun unique-notes (history)
+  (sort* (delete-duplicates (remove nil history)) '<))
+
+(defun note-to-num (history i)
+  (if (and (>= i 0) (< i (length history)))
+      (let* ((notes (unique-notes history))
+             (num (position (elt history i) notes)))
+        (if num
+            (1+ num)
+          0))
+    0))
+
+(defun num-to-note (history y)
+  (when (> y 0)
+   (let ((notes (unique-notes history)))
+     (elt notes (1- y)))))
+
+(setq lookback 8)
+
+(defun predict-notes (input output)
+  (setq input-range (1+ (length (delete-duplicates input))))
+  (setq output-range (1+ (length (delete-duplicates output))))
+
+  (setq n-inputs (1+ (* lookback input-range)))
+  (setq n-outputs output-range)
+
+  (setq input-list (loop for i below (length input)
+                         collect (cons 1 (loop for j from (- i (1- lookback)) to i
+                                               for num = (note-to-num input j)
+                                               for inp = (make-vector input-range 0)
+                                               append (progn
+                                                        (aset inp num 1)
+                                                        (append inp nil))))))
+
+  (setq output-list (loop for i below (length output)
+                          for num = (note-to-num output i)
+                          for outp = (make-vector output-range 0)
+                          collect (progn
+                                    (aset outp num 1)
+                                    (append outp nil))))
+
+  (setq weights (train input-list output-list n-inputs n-outputs 2 0.5 1))
+
+  (loop for x in input-list
+        for pred = (predict x weights n-inputs n-outputs)
+        for y = (argmax pred)
+        collect (num-to-note output y)))
+
+(defmacro shuffled (&rest body)
+  `(let ((time-in-beat (midimacs-time% rel-time '1)))
+     (when (or (midimacs-time= time-in-beat '0)
+               (midimacs-time= time-in-beat '2/3))
+       ,@body)))
+
+(defmacro play-notes (pitches)
+  `(shuffled
+    (destructuring-bind (i prev-pitch) state
+      (let ((pitch (elt ,pitches i)))
+        (when (not (eq pitch prev-pitch))
+          (when prev-pitch
+            (midimacs-note-off channel prev-pitch))
+          (when pitch
+            (midimacs-note-on channel pitch)))
+        (setq state (list (1+ i) pitch))))))") (88 . "(midimacs-init (channel song-time length state)
+
+  (midimacs-all-notes-off)
+
+  nil)
+
+(midimacs-run (channel song-time rel-time state)
+
+  state)
+") (49 . "(midimacs-init (channel song-time length state)
+
+  (setq predicted-pitches (predict-notes history-01 history-00))
+  (setq old-pitches history-01)
+
+  nil)
+
+(midimacs-run (channel song-time rel-time state)
+
+  state)
+
+") (50 . "(midimacs-init (channel song-time length state)
+
+  (setq predicted-pitches (predict-notes history-00 history-01))
+  (setq old-pitches history-00)
+
+  nil)
+
+(midimacs-run (channel song-time rel-time state)
+
+  state)
+") (113 . "(midimacs-init (channel song-time length state)
+
+  nil)
+
+(midimacs-run (channel song-time rel-time state)
+
+  (midimacs-score
+    (0         C5    2/3)
+    (1         G4    2/3)
+    (2         E5    1/3)
+    (2+2/3     E5    1/3)
+    (3         E5    2/3)
+    (4         C5    2/3)
+    (5         C5    1/3)
+    (5+2/3     E5    1/3)
+    (6         G5    1+1/3)
+    (7+2/3     G5    1/3)
+    (8         F5    1/3)
+    (8+2/3     E5    1/3)
+    (9         D5    1+2/3)
+    (11        D5    1/3)
+    (11+2/3    E5    1/3)
+    (12        F5    2/3)
+    (13        F5    2/3)
+    (14        E5    1/3)
+    (14+2/3    D5    1/3)
+    (15        E5    2/3)
+    (16        C5    2/3)
+    (17        C5    1/3)
+    (17+2/3    E5    1/3)
+    (18        D5    2/3)
+    (19        G4    2/3)
+    (20        B4    1/3)
+    (20+2/3    D5    1/3)
+    (21        C5    1+2/3)
+    (23        C5    1/3)
+    (23+2/3    C5    1/3))
+
+  state)
+") (101 . "(midimacs-init (channel song-time length state)
+
+  nil)
+
+(midimacs-run (channel song-time rel-time state)
+
+  (midimacs-score
+    (0         C4    1)
+    (2         G3    2/3)
+    (3         C4    1)
+    (5         G4    2/3)
+    (6         E4    1)
+    (8         D4    1/3)
+    (8+2/3     C4    1/3)
+    (9         B3    2/3)
+    (10        G3    2/3)
+    (11        B3    2/3)
+    (12        D4    2/3)
+    (13        G3    2/3)
+    (14        A3    1/3)
+    (14+2/3    B3    1/3)
+    (15        C4    2/3)
+    (16        E4    2/3)
+    (17        G3    2/3)
+    (18        B3    2/3)
+    (19        D4    2/3)
+    (20        G3    2/3)
+    (21        C4    3))
+
+  state)
+
+") (104 . "(midimacs-init (channel song-time length state)
+
+  '(0 nil))
+
+(midimacs-run (channel song-time rel-time state)
+
+  (play-notes old-pitches)
+
+  state)
+") (122 . "(midimacs-init (channel song-time length state)
+
+  '(0 nil))
+
+(midimacs-run (channel song-time rel-time state)
+
+  (play-notes predicted-pitches)
+
+  state)
+") (82 . "(midimacs-init (channel song-time length state)
+
+  (setq history-00 (make-vector 48 nil))
+  (setq history-01 (make-vector 48 nil))
+
+  0)
+
+(midimacs-run (channel song-time rel-time i)
+
+  (shuffled
+   (aset history-00 i (car (midimacs-sustained 0)))
+   (aset history-01 i (car (midimacs-sustained 1)))
+   (incf i))
+
+  i)
+")) [cl-struct-midimacs-time 0 0] [cl-struct-midimacs-time 999 0] " init                                                                                                                        
+>99 I                       X                       X                       X                       X                       X
+ train                                                                                                                      
+>99                         1                       2                       1                       2                           
+ music                                                                                                                          
+>00 q.......................z.......................h.......................z.......................h.......................
+>01 e.......................h.......................z.......................h.......................z.......................                            
+ record                                                                                                                        
+>99 R.......................R.......................R.......................R.......................R.......................   
+    ")
