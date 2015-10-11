@@ -1,5 +1,8 @@
 ;;; -*- lexical-binding: t; -*-
 
+;; BUGS:
+;; * you're dead if you accidentally close *midimacs-seq*
+
 (eval-when-compile
   (require 'cl))
 (require 'heap)
@@ -32,6 +35,7 @@
   (local-set-key (kbd "C-c C-]") 'midimacs-set-repeat-end)
   (local-set-key (kbd "C-c m k") 'midimacs-record-keyboard)
   (local-set-key (kbd "C-c m r") 'midimacs-record-midi)
+  (local-set-key (kbd "C-c m c") 'midimacs-toggle-capture)
   (local-set-key (kbd "C-c m T") 'midimacs-tap-tempo-and-play)
   (local-set-key (kbd "C-c m t") 'midimacs-tap-tempo)
   (local-set-key (kbd "C-c m A") 'midimacs-amidicat-init)
@@ -54,6 +58,7 @@
 
 (define-derived-mode midimacs-code-mode emacs-lisp-mode "midimacs-code-mode"
   (define-key midimacs-code-mode-map (kbd "M-SPC") 'midimacs-toggle-play)
+  (define-key midimacs-code-mode-map (kbd "C-c m c") 'midimacs-toggle-capture)
   (define-key midimacs-code-mode-map (kbd "C-c m h") 'midimacs-code-score-hide-times)
   (define-key midimacs-code-mode-map (kbd "C-c m s") 'midimacs-code-score-show-times)
   (define-key midimacs-code-mode-map (kbd "C-c m q") 'midimacs-score-quantize-times)
@@ -143,6 +148,13 @@
   (let ((beats (- (midimacs-time-beat start) (midimacs-time-beat end))))
     (when (= beats 0)
       (user-error "repeat start and repeat end must be different"))))
+
+(defun midimacs-toggle-capture ()
+  (interactive)
+  (if midimacs-is-capturing
+      (setq midimacs-is-capturing nil)
+    (setq midimacs-is-capturing t))
+  (message (concat "Capture " (if midimacs-is-capturing "enabled" "disabled"))))
 
 (defun midimacs-toggle-play ()
   (interactive)

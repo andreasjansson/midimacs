@@ -29,7 +29,7 @@
                collect (midimacs-parse-pitch ps)))
         (t (list (midimacs-parse-pitch pitch-sym)))))
 
-(defmacro midimacs-timed (timed-funcs)
+(defmacro midimacs-timed (&rest timed-funcs)
   (cons
    'progn
    (loop for (onset-sym on-func dur-sym off-func) in timed-funcs
@@ -37,9 +37,9 @@
          for dur = (when dur-sym (midimacs-parse-time dur-sym))
          for off-time = (when dur-sym (midimacs-time+ on-time dur))
          collect `(cond ((midimacs-time= rel-time ,on-time)
-                         (lambda () ,on-func))
+                         ,on-func)
                         ((and ,off-time ,off-func (midimacs-time= rel-time ,off-time))
-                         (lambda () ,off-func))))))
+                         ,off-func)))))
 
 (defmacro midimacs-timed-state (timed-funcs)
   (cons
@@ -56,8 +56,8 @@
 (defmacro midimacs-global-init (&rest body)
   (setq midimacs-global-init-func `(lambda () ,@body)))
 
-(defmacro* midimacs-every (time &rest body)
-  (let ((time (midimacs-parse-time time-sym)))
+(defmacro* midimacs-every (time-raw &rest body)
+  (let ((time (midimacs-anything-to-time time-raw)))
     `(when (midimacs-time= (midimacs-time% rel-time ,time) (make-midimacs-time)) ,@body)))
 
 (defmacro midimacs-init (args &rest body)

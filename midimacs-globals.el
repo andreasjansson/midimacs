@@ -65,6 +65,7 @@
 (defvar midimacs-abs-time nil)
 (defvar midimacs-song-time nil)
 (defvar midimacs-state 'stopped)
+(defvar midimacs-is-capturing nil)
 (defvar midimacs-start-time-seconds nil)
 (defvar midimacs-last-tick-seconds nil) ; used for recording
 (defvar midimacs-filename nil)

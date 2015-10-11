@@ -96,8 +96,10 @@
                (beat (if beat-s (string-to-number beat-s) 0))
                (frac-num (when frac-num-s (string-to-number frac-num-s)))
                (frac-denom (when frac-denom-s (string-to-number frac-denom-s)))
-               (tick (if frac-num (midimacs-frac-to-tick frac-num frac-denom) 0)))
-          (make-midimacs-time :beat beat :tick tick))
+               (frac-ticks (if frac-num (midimacs-frac-to-tick frac-num frac-denom) 0))
+               (beat-ticks (* beat midimacs-ticks-per-beat))
+               (ticks (+ frac-ticks beat-ticks)))
+          (midimacs-ticks-to-time ticks))
       (error (format "Couldn't parse time: %s" s)))))
 
 (defun midimacs-frac-to-tick (num denom)

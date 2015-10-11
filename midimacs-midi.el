@@ -160,11 +160,18 @@
 
 (defun midimacs-handle-midi-input (message)
   (midimacs-midi-execute message)
-  (when (eq midimacs-state 'recording)
-    (cond ((midimacs-midi-message-is-note-off message)
-           (midimacs-record-midi-note-off message))
-          ((midimacs-midi-message-is-note-on message)
-           (midimacs-record-midi-note-on message)))))
+  (cond ((eq midimacs-state 'recording)
+         (cond ((midimacs-midi-message-is-note-off message)
+                (midimacs-record-midi-note-off message))
+               ((midimacs-midi-message-is-note-on message)
+                (midimacs-record-midi-note-on message))))
+        ((and midimacs-is-capturing
+              (midimacs-buffer-is-code (current-buffer))
+              (midimacs-midi-message-is-note-on message))
+         (midimacs-print-message message))))
+
+(defun midimacs-print-message (message)
+  (insert (midimacs-pitch-to-string (midimacs-midi-message-data1 message)) " "))
 
 (defun midimacs-record-midi-note-on (message)
   (let* ((song-time (midimacs-quantized-song-time))
